@@ -27,9 +27,7 @@ class redditdownloader:
                     while True:
                         try:
                             async with session.get(value['source']['url'], timeout=5) as r:
-                                print(value['source']['url'])
                                 contentlength = int(r.headers.get('content-length'))
-                                print(contentlength)
                             postinfo[index] = {'url': value['source']['url'],
                                                 'width': value['source']['dimensions']['width'],
                                                 'height': value['source']['dimensions']['height'],
@@ -79,7 +77,7 @@ class redditdownloader:
                     if value.get('contentlength')/(1024*1024) > maxsize:
                         continue
                 filename = f'redditvideo-{round(datetime.now().timestamp())}.mp4'
-                async with aiofiles.open(f'{filename}.mp4', 'wb') as f1:
+                async with aiofiles.open(filename, 'wb') as f1:
                     async with aiohttp.ClientSession() as session:
                         async with session.get(value.get('url')) as r:
                             progress = tqdm(total=int(r.headers.get('content-length')), unit='iB', unit_scale=True)

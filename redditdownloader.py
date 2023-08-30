@@ -23,7 +23,6 @@ class redditdownloader:
                 mainurls = json.loads(unescape(mainurls[0][0]))
                 postinfo = {}
                 for index, value in enumerate(mainurls['permutations']):
-                    print(value)
                     while True:
                         try:
                             async with session.get(value['source']['url'], timeout=5) as r:

@@ -23,13 +23,23 @@ class redditdownloader:
                 mainurls = json.loads(unescape(mainurls[0][0]))
                 postinfo = {}
                 for index, value in enumerate(mainurls['permutations']):
-                    async with session.get(value['source']['url']) as r:
-                        contentlength = int(r.headers.get('content-length'))
-                    postinfo[index] = {'url': value['source']['url'],
-                                        'width': value['source']['dimensions']['width'],
-                                        'height': value['source']['dimensions']['height'],
-                                        'duration': mainurls['duration'],
-                                    'contentlength': contentlength}
+                    print(value)
+                    while True:
+                        try:
+                            async with session.get(value['source']['url'], timeout=5) as r:
+                                print(value['source']['url'])
+                                contentlength = int(r.headers.get('content-length'))
+                                print(contentlength)
+                            postinfo[index] = {'url': value['source']['url'],
+                                                'width': value['source']['dimensions']['width'],
+                                                'height': value['source']['dimensions']['height'],
+                                                'duration': mainurls['duration'],
+                                            'contentlength': contentlength}
+                            break
+                        except asyncio.exceptions.TimeoutError:
+                            print('timedout! retrying in 3 seconds')
+                            await asyncio.sleep(3)
+                            continue
                 postinfo = sorted(postinfo.items(), key=lambda x: x[1].get('contentlength'), reverse=True)
                 temp = {}
                 for i in postinfo:

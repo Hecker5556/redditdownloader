@@ -3,7 +3,7 @@ from html import unescape
 from datetime import datetime
 from tqdm.asyncio import tqdm
 from bs4 import BeautifulSoup
-class redditdownloadear:
+class redditdownloader:
     async def main(link: str):
         patternvideo = r'packaged-media-json=\"{&quot;playbackMp4s&quot;:((.*?)}}}]})'
         headers = {
@@ -59,7 +59,7 @@ class redditdownloadear:
 
         return postinfo
     async def download(link, maxsize: int = None):
-        postinfo= await redditdownloadear.main(link)
+        postinfo= await redditdownloader.main(link)
         filenames = None
         if isinstance(postinfo, dict):
             for key, value in postinfo.items():
@@ -117,4 +117,4 @@ if __name__ == '__main__':
     parser.add_argument('link', type=str, help='link to the reddit post')
     parser.add_argument('--maxsize', '-s', type=int, help='maximum size of video')
     args = parser.parse_args()
-    print(asyncio.run(redditdownloadear.download(args.link, args.maxsize)))
+    print(asyncio.run(redditdownloader.download(args.link, args.maxsize)))

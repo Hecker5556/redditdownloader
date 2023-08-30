@@ -66,7 +66,7 @@ class redditdownloader:
                 if not maxsize:
                     pass
                 else:
-                    if value.get('content-length')/(1024*1024) > maxsize:
+                    if value.get('contentlength')/(1024*1024) > maxsize:
                         continue
                 filename = f'redditvideo-{round(datetime.now().timestamp())}.mp4'
                 async with aiofiles.open(f'{filename}.mp4', 'wb') as f1:

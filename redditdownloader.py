@@ -143,42 +143,37 @@ class redditdownloader:
         elif isinstance(postinfo, list) and all(isinstance(item, tuple) for item in postinfo):
             filename = f"redditvideo-{str(datetime.now().timestamp()).replace('.', '')}.mp4"
             async def download(link: str, filename: str, progress: tqdm, session: aiohttp.ClientSession):
-                async with session.get(link) as response:
-                    async with aiofiles.open(filename, 'wb') as f1:
-                        while True:
-                            chunk = await response.content.read(1024)
-                            if not chunk:
-                                break
-                            await f1.write(chunk)
-                            progress.update(len(chunk))
-                    return
+                while True:
+                    try:
+                        async with session.get(link) as response:
+                            async with aiofiles.open(filename, 'wb') as f1:
+                                while True:
+                                    chunk = await response.content.read(1024)
 
+                                    if not chunk:
+                                        break
+                                    await f1.write(chunk)
+                                    progress.update(len(chunk))
+                            return
+                    except aiohttp.client_exceptions.ServerTimeoutError:
+                        continue
 
-            async with aiohttp.ClientSession() as session:
+            timeout = aiohttp.ClientTimeout(total=None, sock_read=3, sock_connect=3)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
                 for url, audiourl in postinfo:
                     totalsize = 0
                     while True:
-                        if not os.path.exists('proxycache.txt'):
-                            proxyurl = 'https://gimmeproxy.com/api/getProxy?curl=true'
-                            async with session.get(proxyurl) as proxies:
-                                proxy = await proxies.text()
-                        else:
-                            async with aiofiles.open('proxycache.txt', 'r') as f1:
-                                proxy = await f1.read()
-
                         try:
-                            async with session.get(url, proxy = proxy, timeout=3) as r:
+                            async with session.get(url, timeout=3) as r:
                                 totalsize += int(r.headers.get('content-length'))
-                            async with session.get(audiourl, proxy = proxy, timeout=3) as r:
+                            async with session.get(audiourl) as r:
                                 totalsize += int(r.headers.get('content-length'))
-                            async with aiofiles.open('proxycache.txt', 'w') as f1:
-                                await f1.write(proxy)
                             break
-                        except:
-                            if os.path.exists('proxycache.txt'):
-                                os.remove('proxycache.txt')
-                            print('getting proxy failed, trying again...')
+                        except asyncio.exceptions.TimeoutError:
+                            print('rate limited, waiting 5 seconds...')
+                            await asyncio.sleep(5)
                             continue
+
                         
                     if maxsize:
                         if totalsize/(1024*1024) > maxsize:

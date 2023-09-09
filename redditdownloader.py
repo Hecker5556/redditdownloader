@@ -45,7 +45,7 @@ class redditdownloader:
                     temp[i[0]] = i[1]
                 postinfo = temp
             
-            elif patternmanifest:
+            elif manifesturls:
                 manifesturl = manifesturls[0][0]
                 mainurl = manifesturls[0][1]
                 async with session.get(manifesturl) as response:
@@ -81,11 +81,8 @@ class redditdownloader:
                 if len(urls) > 0:
                     return urls
                 else:
-                    patternimage = r'<shreddit-screenview-data(?:[\s\S]*?)data=\"(.*?)\"\n'
-                    url = re.findall(patternimage, rtext)
-                    url = json.loads(unescape(url[0]))
-                    url = url['post']['url']
-                    postinfo = url
+                    patternimage = r'data=\"(.*?)\"'
+                    return json.loads(unescape(re.findall(patternimage, rtext)[0])).get('post').get('url')     
 
         return postinfo
     async def download(link, maxsize: int = None):
@@ -115,7 +112,7 @@ class redditdownloader:
             filename = f'redditimage-{round(datetime.now().timestamp())}.png'
             async with aiofiles.open(filename, 'wb') as f1:
                 async with aiohttp.ClientSession() as session:
-                    async with session.get(postinfo) as r:
+                    async with session.get(postinfo, allow_redirects=False) as r:
                         progress = tqdm(total=int(r.headers.get('content-length'))  if not r.headers.get('Transfer-Encoding') == 'chunked' else None, unit='iB', unit_scale=True)
                         while True:
                             chunk = await r.content.read(1024)

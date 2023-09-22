@@ -82,7 +82,7 @@ class redditdownloader:
                     return urls
                 else:
                     patternimage = r'data=\"(.*?)\"'
-                    return json.loads(unescape(re.findall(patternimage, rtext)[0])).get('post').get('url')     
+                    return json.loads(unescape(re.findall(patternimage, rtext)[0])).get('post').get('url')
 
         return postinfo
     async def download(link, maxsize: int = None):
@@ -109,7 +109,8 @@ class redditdownloader:
                             progress.close()
                             break
         elif isinstance(postinfo, str):
-            filename = f'redditimage-{round(datetime.now().timestamp())}.png'
+            filetype = postinfo[-3:]
+            filename = f'redditimage-{round(datetime.now().timestamp())}.{filetype}'
             async with aiofiles.open(filename, 'wb') as f1:
                 async with aiohttp.ClientSession() as session:
                     async with session.get(postinfo, allow_redirects=False) as r:

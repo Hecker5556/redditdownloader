@@ -3,8 +3,17 @@ from html import unescape
 from datetime import datetime
 from tqdm.asyncio import tqdm
 from bs4 import BeautifulSoup
+from aiohttp_socks import ProxyConnector
 class redditdownloader:
-    async def main(link: str):
+    def makeconnector(proxy: str = None):
+        connector = aiohttp.TCPConnector()
+        if proxy:
+            if "socks" in proxy:
+                connector = ProxyConnector.from_url(proxy)
+            else:
+                connector = aiohttp.TCPConnector(proxy=proxy)
+        return connector
+    async def main(link: str, proxy: str = None):
         patternvideo = r'packaged-media-json=\"{&quot;playbackMp4s&quot;:((.*?)}}}]})'
         patternmanifest = r'((https://v\.redd\.it/(?:.*?)/)HLSPlaylist\.m3u8\?(?:.*?))\"'
         headers = {
@@ -15,7 +24,8 @@ class redditdownloader:
         'Range': 'bytes=0-',
         'sec-ch-ua-platform': '"Windows"',
         }
-        async with aiohttp.ClientSession() as session:
+
+        async with aiohttp.ClientSession(connector=redditdownloader.makeconnector(proxy)) as session:
             async with session.get(link, headers=headers) as r:
                 rtext = await r.text()
             mainurls = re.findall(patternvideo, rtext)
@@ -85,8 +95,8 @@ class redditdownloader:
                     return json.loads(unescape(re.findall(patternimage, rtext)[0])).get('post').get('url')
 
         return postinfo
-    async def download(link, maxsize: int = None):
-        postinfo= await redditdownloader.main(link)
+    async def download(link, maxsize: int = None, proxy: str = None):
+        postinfo= await redditdownloader.main(link, proxy)
         filenames = None
         if isinstance(postinfo, dict):
             for key, value in postinfo.items():
@@ -97,7 +107,7 @@ class redditdownloader:
                         continue
                 filename = f'redditvideo-{str(datetime.now().timestamp()).replace(".", "")}.mp4'
                 async with aiofiles.open(filename, 'wb') as f1:
-                    async with aiohttp.ClientSession() as session:
+                    async with aiohttp.ClientSession(connector=redditdownloader.makeconnector(proxy)) as session:
                         async with session.get(value.get('url')) as r:
                             progress = tqdm(total=int(r.headers.get('content-length')), unit='iB', unit_scale=True)
                             while True:
@@ -112,7 +122,7 @@ class redditdownloader:
             filetype = postinfo[-3:]
             filename = f'redditimage-{round(datetime.now().timestamp())}.{filetype}'
             async with aiofiles.open(filename, 'wb') as f1:
-                async with aiohttp.ClientSession() as session:
+                async with aiohttp.ClientSession(connector=redditdownloader.makeconnector(proxy)) as session:
                     async with session.get(postinfo, allow_redirects=False) as r:
                         progress = tqdm(total=int(r.headers.get('content-length'))  if not r.headers.get('Transfer-Encoding') == 'chunked' else None, unit='iB', unit_scale=True)
                         while True:
@@ -124,7 +134,7 @@ class redditdownloader:
                         progress.close()
         elif isinstance(postinfo, list) and all(isinstance(item, str) for item in postinfo):
             filenames = []
-            async with aiohttp.ClientSession() as session:
+            async with aiohttp.ClientSession(connector=redditdownloader.makeconnector(proxy)) as session:
                 for index, url in enumerate(postinfo):
                     filename = f'redditimage-{round(datetime.now().timestamp())}-{index}.jpg'
                     filenames.append(filename)
@@ -157,7 +167,7 @@ class redditdownloader:
                         continue
 
             timeout = aiohttp.ClientTimeout(total=None, sock_read=3, sock_connect=3)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with aiohttp.ClientSession(timeout=timeout, connector=redditdownloader.makeconnector(proxy)) as session:
                 for url, audiourl in postinfo:
                     totalsize = 0
                     while True:
@@ -195,5 +205,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='download videos and audios')
     parser.add_argument('link', type=str, help='link to the reddit post')
     parser.add_argument('--maxsize', '-s', type=int, help='maximum size of video')
+    parser.add_argument("--proxy", type=str, help="proxy")
     args = parser.parse_args()
-    print(asyncio.run(redditdownloader.download(args.link, args.maxsize)))
+    print(asyncio.run(redditdownloader.download(args.link, args.maxsize, args.proxy)))

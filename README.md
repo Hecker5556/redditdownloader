@@ -11,6 +11,7 @@ cd redditdownloader
 ```bash
 pip install -r requirements.txt
 ```
+download [ffmpeg](https://www.ffmpeg.org/download.html)
 # Usage
 ## Usage with exe (you can add to path)
 ```

@@ -16,6 +16,9 @@ class redditdownloader:
     async def main(link: str, proxy: str = None):
         patternvideo = r'packaged-media-json=\"{&quot;playbackMp4s&quot;:((.*?)}}}]})'
         patternmanifest = r'((https://v\.redd\.it/(?:.*?)/)HLSPlaylist\.m3u8\?(?:.*?))\"'
+        patterncaption = r'<shreddit-title title=\"(.*?)\"></shreddit-title>'
+        patterndescription = r"<div class=\"text-neutral-content\" slot=\"text-body\">([\s\S]*?)</div>"
+        patterndescription2 = r"<p>([\s\S]*?)</p>"
         headers = {
         'sec-ch-ua': '"Chromium";v="116", "Not)A;Brand";v="24", "Brave";v="116"',
         'Referer': 'https://www.reddit.com/',
@@ -28,8 +31,17 @@ class redditdownloader:
         async with aiohttp.ClientSession(connector=redditdownloader.makeconnector(proxy)) as session:
             async with session.get(link, headers=headers) as r:
                 rtext = await r.text()
+                with open('response.txt', 'w', encoding="utf-8") as f1:
+                    f1.write(rtext)
             mainurls = re.findall(patternvideo, rtext)
             manifesturls = re.findall(patternmanifest, rtext)
+            caption = re.findall(patterncaption, rtext)
+            description = re.findall(patterndescription, rtext)
+            if description:
+                description = re.findall(patterndescription2, description[0])
+            thetext = {"caption": caption[0] if caption else caption, "description": "\n".join([d.lstrip().rstrip() for d in description]) if description else description}
+            if description:
+                return None, thetext
             if mainurls:
                 
                 mainurls = json.loads(unescape(mainurls[0][0]))
@@ -92,11 +104,13 @@ class redditdownloader:
                     return urls
                 else:
                     patternimage = r'data=\"(.*?)\"'
-                    return json.loads(unescape(re.findall(patternimage, rtext)[0])).get('post').get('url')
+                    return json.loads(unescape(re.findall(patternimage, rtext)[0])).get('post').get('url'), thetext
 
-        return postinfo
+        return postinfo, thetext
     async def download(link, maxsize: int = None, proxy: str = None):
-        postinfo= await redditdownloader.main(link, proxy)
+        postinfo, thetext = await redditdownloader.main(link, proxy)
+        if not postinfo:
+            return None, thetext
         filenames = None
         if isinstance(postinfo, dict):
             for key, value in postinfo.items():
@@ -199,7 +213,7 @@ class redditdownloader:
                             break
                     else:
                         break
-        return filename if not filenames else filenames
+        return filename, thetext  if not filenames else filenames, thetext
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(description='download videos and audios')

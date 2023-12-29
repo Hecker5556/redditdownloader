@@ -40,8 +40,6 @@ class redditdownloader:
             if description:
                 description = re.findall(patterndescription2, description[0])
             thetext = {"caption": caption[0] if caption else caption, "description": "\n".join([d.lstrip().rstrip() for d in description]) if description else description}
-            if description:
-                return None, thetext
             if mainurls:
                 
                 mainurls = json.loads(unescape(mainurls[0][0]))

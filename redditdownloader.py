@@ -19,6 +19,7 @@ class redditdownloader:
         patterncaption = r'<shreddit-title title=\"(.*?)\"></shreddit-title>'
         patterndescription = r"<div class=\"text-neutral-content\" slot=\"text-body\">([\s\S]*?)</div>"
         patterndescription2 = r"<p>([\s\S]*?)</p>"
+        patternlinks = r"<a(?:[\s\S]*?)>(.*?)</a(?:[\s\S]*?)>"
         headers = {
         'sec-ch-ua': '"Chromium";v="116", "Not)A;Brand";v="24", "Brave";v="116"',
         'Referer': 'https://www.reddit.com/',
@@ -40,6 +41,9 @@ class redditdownloader:
             if description:
                 description = re.findall(patterndescription2, description[0])
             thetext = {"caption": caption[0] if caption else caption, "description": "\n".join([d.lstrip().rstrip() for d in description]) if description else description}
+            if thetext.get("description"):
+                thetext['description'] = re.sub(patternlinks, lambda match: match.group(1), thetext['description'])
+            postinfo = None
             if mainurls:
                 
                 mainurls = json.loads(unescape(mainurls[0][0]))
@@ -102,8 +106,14 @@ class redditdownloader:
                     return urls
                 else:
                     patternimage = r'data=\"(.*?)\"'
-                    return json.loads(unescape(re.findall(patternimage, rtext)[0])).get('post').get('url'), thetext
+                    data = re.findall(patternimage, rtext)
+                    if data:
+                        data = json.loads(unescape(data[0]))
 
+                        if data.get('post').get('type') != 'text' and data.get('post').get('type') != "multi_media":
+                            return data.get('post').get('url'), thetext
+                    return None, thetext
+        print(postinfo)
         return postinfo, thetext
     async def download(link, maxsize: int = None, proxy: str = None):
         postinfo, thetext = await redditdownloader.main(link, proxy)

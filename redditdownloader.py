@@ -93,18 +93,21 @@ class redditdownloader:
                 
                     
             else:
-                soup = BeautifulSoup(rtext, 'html.parser')
                 urls = []
-                ul_elements = soup.find_all('ul')  # Find all <ul> elements
-                for index, ul in enumerate(ul_elements):
-                    li_elements = ul.find_all('li', attrs={'slot': True})  # Find <li> elements with a 'slot' attribute
-                    for li in li_elements:
-                        img = li.find('img')  # Find the <img> element inside each <li>
-                        if img:
-                            src = img.get('src')  # Get the 'src' attribute of the <img>
-                            urls.append(src)
+                listpattern = r"<li slot=\"page-(?:\d*?)\"([\s\S]*?)</li>"
+                lists = re.findall(listpattern, rtext)
+                srcsetpattern = r"srcset=\"(.*?)\""
+                if lists:
+                    for page in lists:
+                        matches = re.findall(srcsetpattern, page)
+                        if not matches:
+                            continue
+                        images = matches[0].split(",")
+                        images = [image.split()[0].replace("amp;", "") for image in images]
+                        urls.append(images[-1])
+                print(urls)
                 if len(urls) > 0:
-                    return urls
+                    return urls, thetext
                 else:
                     patternimage = r'data=\"(.*?)\"'
                     data = re.findall(patternimage, rtext)
@@ -159,7 +162,7 @@ class redditdownloader:
             filenames = []
             async with aiohttp.ClientSession(connector=redditdownloader.makeconnector(proxy)) as session:
                 for index, url in enumerate(postinfo):
-                    filename = f'redditimage-{round(datetime.now().timestamp())}-{index}.jpg'
+                    filename = f'redditimage-{round(datetime.now().timestamp())}-{index}.{"png" if "format=png" in url else "jpg"}'
                     filenames.append(filename)
                     async with aiofiles.open(filename, 'wb') as f1:
                         async with session.get(url) as r:

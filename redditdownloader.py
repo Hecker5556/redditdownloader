@@ -105,7 +105,6 @@ class redditdownloader:
                         images = matches[0].split(",")
                         images = [image.split()[0].replace("amp;", "") for image in images]
                         urls.append(images[-1])
-                print(urls)
                 if len(urls) > 0:
                     return urls, thetext
                 else:
@@ -117,7 +116,6 @@ class redditdownloader:
                         if data.get('post').get('type') != 'text' and data.get('post').get('type') != "multi_media":
                             return data.get('post').get('url'), thetext
                     return None, thetext
-        print(postinfo)
         return postinfo, thetext
     async def download(link, maxsize: int = None, proxy: str = None):
         postinfo, thetext = await redditdownloader.main(link, proxy)
@@ -225,7 +223,7 @@ class redditdownloader:
                             break
                     else:
                         break
-        return filename, thetext  if not filenames else filenames, thetext
+        return (filename, thetext)  if not filenames else (filenames, thetext)
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(description='download videos and audios')

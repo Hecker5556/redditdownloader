@@ -82,7 +82,7 @@ class redditdownloader:
                         audiourlpattern = r'URI=\"(.*?)\"'
                         audioidpattern = r'GROUP-ID=\"(.*?)\"'
                         audioformats[re.findall(audioidpattern, i)[0]] = re.findall(audiourlpattern, i)[0]
-                videoformatspattern = r'#EXT-X-STREAM-INF:(?:[\s\S.]*?)AUDIO=\"(.*?)\"\n(.*?)\.m3u8'
+                videoformatspattern = r'#EXT-X-STREAM-INF:(?:[\s\S.]*?)AUDIO=\"(.*?)\"(?:,SUBTITLES=\"subs\")?\n(.*?)\.m3u8'
                 matches = re.findall(videoformatspattern, responsetext)
                 for match in matches:
                     videoformats[match[1]] = match[0]

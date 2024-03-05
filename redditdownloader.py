@@ -143,7 +143,9 @@ class redditdownloader:
                             progress.close()
                             break
         elif isinstance(postinfo, str):
-            filetype = postinfo[-3:]
+            filetype = postinfo.split(".")[-1]
+            if filetype not in ["jpeg", "jpg", "png"]:
+                filetype = "jpg"
             filename = f'redditimage-{round(datetime.now().timestamp())}.{filetype}'
             async with aiofiles.open(filename, 'wb') as f1:
                 async with aiohttp.ClientSession(connector=redditdownloader.makeconnector(proxy)) as session:

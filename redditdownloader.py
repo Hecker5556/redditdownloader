@@ -20,6 +20,7 @@ class redditdownloader:
         patterndescription = r"<div class=\"text-neutral-content\" slot=\"text-body\">([\s\S]*?)</div>"
         patterndescription2 = r"<p>([\s\S]*?)</p>"
         patternlinks = r"<a(?:[\s\S]*?)>(.*?)</a(?:[\s\S]*?)>"
+        authorpattern = r"author=\"(.*?)\""
         headers = {
         'sec-ch-ua': '"Chromium";v="116", "Not)A;Brand";v="24", "Brave";v="116"',
         'Referer': 'https://www.reddit.com/',
@@ -38,9 +39,10 @@ class redditdownloader:
             manifesturls = re.findall(patternmanifest, rtext)
             caption = re.findall(patterncaption, rtext)
             description = re.findall(patterndescription, rtext)
+            author = re.findall(authorpattern, rtext)
             if description:
                 description = re.findall(patterndescription2, description[0])
-            thetext = {"caption": caption[0] if caption else caption, "description": "\n".join([d.lstrip().rstrip() for d in description]) if description else description}
+            thetext = {"caption": caption[0] if caption else caption, "description": "\n".join([d.lstrip().rstrip() for d in description]) if description else description, "author": author}
             if thetext.get("description"):
                 thetext['description'] = re.sub(patternlinks, lambda match: match.group(1), thetext['description'])
                 thetext['description'] = thetext['description'].replace("&quot;", "\"").replace("&#39;", "'")
@@ -94,9 +96,16 @@ class redditdownloader:
                     
             else:
                 urls = []
+                srcsetpattern = r"srcset=\"(.*?)\""
+                lazysrcsets = re.findall(srcsetpattern, rtext)
+                if lazysrcsets:
+                    links = []
+                    for i in lazysrcsets:
+                        if i.split(", ")[-1].split(" ")[0].replace("amp;", "") not in links:
+                            links.append(i.split(", ")[-1].split(" ")[0].replace("amp;", ""))
+                    return links, thetext
                 listpattern = r"<li slot=\"page-(?:\d*?)\"([\s\S]*?)</li>"
                 lists = re.findall(listpattern, rtext)
-                srcsetpattern = r"srcset=\"(.*?)\""
                 if lists:
                     for page in lists:
                         matches = re.findall(srcsetpattern, page)
@@ -122,6 +131,7 @@ class redditdownloader:
         if not postinfo:
             return None, thetext
         filenames = None
+        author = thetext.get("author")[0]
         if isinstance(postinfo, dict):
             for key, value in postinfo.items():
                 if not maxsize:
@@ -129,7 +139,9 @@ class redditdownloader:
                 else:
                     if value.get('contentlength')/(1024*1024) > maxsize:
                         continue
-                filename = f'redditvideo-{str(datetime.now().timestamp()).replace(".", "")}.mp4'
+                if not author:
+                    author = "redditvideo"
+                filename = f'{author}-{str(datetime.now().timestamp()).replace(".", "")}.mp4'
                 async with aiofiles.open(filename, 'wb') as f1:
                     async with aiohttp.ClientSession(connector=redditdownloader.makeconnector(proxy)) as session:
                         async with session.get(value.get('url')) as r:
@@ -146,7 +158,9 @@ class redditdownloader:
             filetype = postinfo.split(".")[-1]
             if filetype not in ["jpeg", "jpg", "png"]:
                 filetype = "jpg"
-            filename = f'redditimage-{round(datetime.now().timestamp())}.{filetype}'
+            if not author:
+                author = 'redditimage'
+            filename = f'{author}-{round(datetime.now().timestamp())}.{filetype}'
             async with aiofiles.open(filename, 'wb') as f1:
                 async with aiohttp.ClientSession(connector=redditdownloader.makeconnector(proxy)) as session:
                     async with session.get(postinfo, allow_redirects=False) as r:
@@ -160,9 +174,11 @@ class redditdownloader:
                         progress.close()
         elif isinstance(postinfo, list) and all(isinstance(item, str) for item in postinfo):
             filenames = []
+            if not author:
+                author = "redditimage"
             async with aiohttp.ClientSession(connector=redditdownloader.makeconnector(proxy)) as session:
                 for index, url in enumerate(postinfo):
-                    filename = f'redditimage-{round(datetime.now().timestamp())}-{index}.{"png" if "format=png" in url else "jpg"}'
+                    filename = f'{author}-{round(datetime.now().timestamp())}-{index}.{"png" if "format=png" in url else "jpg"}'
                     filenames.append(filename)
                     async with aiofiles.open(filename, 'wb') as f1:
                         async with session.get(url) as r:
@@ -175,8 +191,10 @@ class redditdownloader:
                                 progress.update(len(chunk))
                             progress.close()
         elif isinstance(postinfo, list) and all(isinstance(item, tuple) for item in postinfo):
-            filename = f"redditvideo-{str(datetime.now().timestamp()).replace('.', '')}.mp4"
-            async def download(link: str, filename: str, progress: tqdm, session: aiohttp.ClientSession):
+            if not author:
+                author = "redditvideo"
+            filename = f"{author}-{str(datetime.now().timestamp()).replace('.', '')}.mp4"
+            async def _download(link: str, filename: str, progress: tqdm, session: aiohttp.ClientSession):
                 while True:
                     try:
                         async with session.get(link) as response:
@@ -213,7 +231,7 @@ class redditdownloader:
                         if totalsize/(1024*1024) > maxsize:
                             continue
                     progress = tqdm(total=totalsize, unit='iB', unit_scale=True, colour='red')
-                    tasks = [download(url, url.split('/')[-1], progress, session), download(audiourl, audiourl.split('/')[-1], progress, session)]
+                    tasks = [_download(url, url.split('/')[-1], progress, session), _download(audiourl, audiourl.split('/')[-1], progress, session)]
                     await asyncio.gather(*tasks)
                     progress.close()
                     process = await asyncio.subprocess.create_subprocess_exec(*f"ffmpeg -i {url.split('/')[-1]} -i {audiourl.split('/')[-1]} -c copy -map 0:v:0 -map 1:a:0 -y {filename}".split(), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)

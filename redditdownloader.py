@@ -45,7 +45,7 @@ class redditdownloader:
             thetext = {"caption": caption[0] if caption else caption, "description": "\n".join([d.lstrip().rstrip() for d in description]) if description else description, "author": author}
             if thetext.get("description"):
                 thetext['description'] = re.sub(patternlinks, lambda match: match.group(1), thetext['description'])
-                thetext['description'] = thetext['description'].replace("&quot;", "\"").replace("&#39;", "'")
+                thetext['description'] = unescape(thetext['description'])
             postinfo = None
             if mainurls:
                 

@@ -1,7 +1,7 @@
 import requests, re
 from typing import Literal
-def make_request(headers: dict, params: dict, url: str, subredditpattern: re.Pattern[str], linkspattern, afterpattern: re.Pattern[str]) -> tuple[list[str], str]:
-    response = requests.get(
+def make_request(headers: dict, params: dict, url: str, subredditpattern: re.Pattern[str], linkspattern, afterpattern: re.Pattern[str], session: requests.Session) -> tuple[list[str], str]:
+    response = session.get(
     url,
     params=params,
     headers=headers,
@@ -24,7 +24,9 @@ def make_request(headers: dict, params: dict, url: str, subredditpattern: re.Pat
     after = re.findall(afterpattern, response)[0]
     return links, after
 def get_links(sort_posts: Literal['top', 'hot', 'new'], subreddit: str, time_range: Literal["ALL", "DAY", "WEEK", "MONTH", "YEAR", None] = None,
-              amount: int = 25):
+              amount: int = 25, session: requests.Session = None):
+    if not session:
+        session = requests.Session()
     headers = {
         'authority': 'www.reddit.com',
         'accept': 'text/vnd.reddit.partial+html, text/html;q=0.9',
@@ -48,7 +50,7 @@ def get_links(sort_posts: Literal['top', 'hot', 'new'], subreddit: str, time_ran
     subredditpattern = re.compile(r"permalink=\"/r/(.*?)/comments/(?:.*?)/(?:.*?)/\"")
     linkspattern = r"href=\"(/r/hello/comments/(?:.*?)/(?:.*?)/)\""
     afterpattern = re.compile(r"more-posts-cursor=\"(.*?)\"")
-    links, after = make_request(headers, params, f'https://www.reddit.com/svc/shreddit/community-more-posts/{sort_posts}/', subredditpattern, linkspattern, afterpattern)
+    links, after = make_request(headers, params, f'https://www.reddit.com/svc/shreddit/community-more-posts/{sort_posts}/', subredditpattern, linkspattern, afterpattern, session)
     while len(links) < amount:
         params = {
             't': time_range if sort_posts != "new" and sort_posts != "hot" else "DAY",
@@ -57,7 +59,7 @@ def get_links(sort_posts: Literal['top', 'hot', 'new'], subreddit: str, time_ran
             'after': after + "=="
         }
         print(params)
-        a, aft = make_request(headers, params, f'https://www.reddit.com/svc/shreddit/community-more-posts/{sort_posts}/', subredditpattern, linkspattern, afterpattern)
+        a, aft = make_request(headers, params, f'https://www.reddit.com/svc/shreddit/community-more-posts/{sort_posts}/', subredditpattern, linkspattern, afterpattern, session)
         for link in a:
             if "https://reddit.com" + link in links:
                 continue

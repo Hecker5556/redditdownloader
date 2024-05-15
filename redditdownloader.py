@@ -26,7 +26,7 @@ class redditdownloader:
         }
 
         async with aiohttp.ClientSession(connector=redditdownloader.makeconnector(proxy)) as session:
-            async with session.get(link, headers=headers, proxy=proxy if proxy and proxy.startswith("https") else None) as r:
+            async with session.get(link, headers=headers, proxy=proxy if proxy and proxy.startswith("http") else None) as r:
                 rtext = await r.text()
                 with open('response.txt', 'w', encoding="utf-8") as f1:
                     f1.write(rtext)
@@ -49,7 +49,7 @@ class redditdownloader:
                 for index, value in enumerate(mainurls['permutations']):
                     while True:
                         try:
-                            async with session.get(value['source']['url'], timeout=5, proxy=proxy if proxy and proxy.startswith("https") else None) as r:
+                            async with session.get(value['source']['url'], timeout=5, proxy=proxy if proxy and proxy.startswith("http") else None) as r:
                                 contentlength = int(r.headers.get('content-length'))
                             postinfo[index] = {'url': value['source']['url'],
                                                 'width': value['source']['dimensions']['width'],
@@ -70,7 +70,7 @@ class redditdownloader:
             elif manifesturls:
                 manifesturl = manifesturls[0][0]
                 mainurl = manifesturls[0][1]
-                async with session.get(manifesturl, proxy=proxy if proxy and proxy.startswith("https") else None) as response:
+                async with session.get(manifesturl, proxy=proxy if proxy and proxy.startswith("http") else None) as response:
                     responsetext = await response.text()
                 audioformats = {}
                 videoformats = {}
@@ -139,7 +139,7 @@ class redditdownloader:
                 filename = f'{author}-{str(datetime.now().timestamp()).replace(".", "")}.mp4'
                 async with aiofiles.open(filename, 'wb') as f1:
                     async with aiohttp.ClientSession(connector=redditdownloader.makeconnector(proxy)) as session:
-                        async with session.get(value.get('url'), proxy=proxy if proxy and proxy.startswith("https") else None) as r:
+                        async with session.get(value.get('url'), proxy=proxy if proxy and proxy.startswith("http") else None) as r:
                             progress = tqdm(total=int(r.headers.get('content-length')), unit='iB', unit_scale=True)
                             while True:
                                 chunk = await r.content.read(1024)
@@ -158,7 +158,7 @@ class redditdownloader:
             filename = f'{author}-{round(datetime.now().timestamp())}.{filetype}'
             async with aiofiles.open(filename, 'wb') as f1:
                 async with aiohttp.ClientSession(connector=redditdownloader.makeconnector(proxy)) as session:
-                    async with session.get(postinfo, allow_redirects=False, proxy=proxy if proxy and proxy.startswith("https") else None) as r:
+                    async with session.get(postinfo, allow_redirects=False, proxy=proxy if proxy and proxy.startswith("http") else None) as r:
                         progress = tqdm(total=int(r.headers.get('content-length'))  if not r.headers.get('Transfer-Encoding') == 'chunked' else None, unit='iB', unit_scale=True)
                         while True:
                             chunk = await r.content.read(1024)
@@ -176,7 +176,7 @@ class redditdownloader:
                     filename = f'{author}-{round(datetime.now().timestamp())}-{index}.{"png" if "format=png" in url else "jpg"}'
                     filenames.append(filename)
                     async with aiofiles.open(filename, 'wb') as f1:
-                        async with session.get(url, proxy=proxy if proxy and proxy.startswith("https") else None) as r:
+                        async with session.get(url, proxy=proxy if proxy and proxy.startswith("http") else None) as r:
                             progress = tqdm(total=int(r.headers.get('content-length')), unit='iB', unit_scale=True)
                             while True:
                                 chunk = await r.content.read(1024)
@@ -192,7 +192,7 @@ class redditdownloader:
             async def _download(link: str, filename: str, progress: tqdm, session: aiohttp.ClientSession):
                 while True:
                     try:
-                        async with session.get(link, proxy=proxy if proxy and proxy.startswith("https") else None) as response:
+                        async with session.get(link, proxy=proxy if proxy and proxy.startswith("http") else None) as response:
                             async with aiofiles.open(filename, 'wb') as f1:
                                 while True:
                                     chunk = await response.content.read(1024)
@@ -211,9 +211,9 @@ class redditdownloader:
                     totalsize = 0
                     while True:
                         try:
-                            async with session.get(url, timeout=3, proxy=proxy if proxy and proxy.startswith("https") else None) as r:
+                            async with session.get(url, timeout=3, proxy=proxy if proxy and proxy.startswith("http") else None) as r:
                                 totalsize += int(r.headers.get('content-length'))
-                            async with session.get(audiourl, proxy=proxy if proxy and proxy.startswith("https") else None) as r:
+                            async with session.get(audiourl, proxy=proxy if proxy and proxy.startswith("http") else None) as r:
                                 totalsize += int(r.headers.get('content-length'))
                             break
                         except asyncio.exceptions.TimeoutError:

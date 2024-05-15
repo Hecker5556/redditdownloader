@@ -18,9 +18,12 @@ def make_request(headers: dict, params: dict, url: str, subredditpattern: re.Pat
         print(status)
     linksmatches = re.findall(linkspattern.replace("hello", subreddit), response)
     for link in linksmatches:
-        if "https://reddit.com" + link in links:
+        if "https://reddit.com" + link in links or link in links:
             continue
-        links.append("https://reddit.com" + link)
+        if not link.startswith("https://reddit.com"):
+            links.append("https://reddit.com" + link)
+        else:
+            links.append(link)
     after = re.findall(afterpattern, response)[0]
     return links, after
 def get_links(sort_posts: Literal['top', 'hot', 'new'], subreddit: str, time_range: Literal["ALL", "DAY", "WEEK", "MONTH", "YEAR", None] = None,
@@ -46,7 +49,7 @@ def get_links(sort_posts: Literal['top', 'hot', 'new'], subreddit: str, time_ran
         'name': subreddit,
         'feedLength': '25',
     }
-
+    print(params)
     subredditpattern = re.compile(r"permalink=\"/r/(.*?)/comments/(?:.*?)/(?:.*?)/\"")
     linkspattern = r"href=\"(/r/hello/comments/(?:.*?)/(?:.*?)/)\""
     afterpattern = re.compile(r"more-posts-cursor=\"(.*?)\"")
@@ -61,20 +64,38 @@ def get_links(sort_posts: Literal['top', 'hot', 'new'], subreddit: str, time_ran
         print(params)
         a, aft = make_request(headers, params, f'https://www.reddit.com/svc/shreddit/community-more-posts/{sort_posts}/', subredditpattern, linkspattern, afterpattern, session)
         for link in a:
-            if "https://reddit.com" + link in links:
+            if "https://reddit.com" + link in links or link in links:
                 continue
-            links.append("https://reddit.com" + link)
+            if not link.startswith("https://reddit.com"):
+                links.append("https://reddit.com" + link)
+            else:
+                links.append(link)
         after = aft
     return links
 ##example  
-# if __name__ == "__main__":
-#     links = get_links('top', 'stories', amount=25, time_range='ALL')
-#     from redditdownloader import redditdownloader
-#     import asyncio
-#     import traceback
-#     for link in links:
-#         try:
-#             print(asyncio.run(redditdownloader.download(link)))
-#         except Exception as e:
-#             traceback.print_exc()
-#             print(link)
+if __name__ == "__main__":
+    session = requests.Session()
+    session.proxies = {} #example usage
+    links = get_links('new', 'okbuddyblacklung', amount=50, time_range='ALL', session=session)
+    from redditdownloader import redditdownloader
+    import asyncio
+    import traceback
+    import os
+    if os.path.exists("cache.txt"):
+        with open("cache.txt", "r") as f1:
+            cache = f1.read().split("\n")
+            newlinks = []
+            for link in links:
+                if link not in cache:
+                    newlinks.append(link)
+    if newlinks:
+        with open("cache.txt", "a") as f1:
+            f1.write("\n".join(newlinks))
+            f1.write("\n")
+    for link in newlinks:
+        print(link)
+        # try:
+        #     print(asyncio.run(redditdownloader.download(link)))
+        # except Exception as e:
+        #     traceback.print_exc()
+        #     print(link)

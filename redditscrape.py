@@ -185,7 +185,7 @@ class async_requests:
             return await self._get_links(sort_posts, subreddit, time_range, amount)
     async def _get_newest_posts(self, subreddit: str, delay: float, amount: int = 5):
         while True:
-            links = self.get_links('new', subreddit, amount=amount, time_range='ALL')
+            links = await self.get_links('new', subreddit, amount=amount, time_range='ALL')
             if os.path.exists("cache.txt"):
                 async with self.aiofiles.open("cache.txt", "r") as f1:
                     cache = await f1.read()

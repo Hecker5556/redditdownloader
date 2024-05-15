@@ -2,8 +2,8 @@ import aiohttp, asyncio, re, json, aiofiles, os
 from html import unescape
 from datetime import datetime
 from tqdm.asyncio import tqdm
-from bs4 import BeautifulSoup
 from aiohttp_socks import ProxyConnector
+import platform
 class redditdownloader:
     def makeconnector(proxy: str = None):
         connector = aiohttp.TCPConnector()
@@ -22,12 +22,9 @@ class redditdownloader:
         patternlinks = r"<a(?:[\s\S]*?)>(.*?)</a(?:[\s\S]*?)>"
         authorpattern = r"author=\"(.*?)\""
         headers = {
-        'sec-ch-ua': '"Chromium";v="116", "Not)A;Brand";v="24", "Brave";v="116"',
         'Referer': 'https://www.reddit.com/',
-        'sec-ch-ua-mobile': '?0',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36' if platform.system() == "Windows" else "'Mozilla/5.0 (X11; Linux x86_64; rv:91.0) Gecko/20100101 Firefox/91.0'",
         'Range': 'bytes=0-',
-        'sec-ch-ua-platform': '"Windows"',
         }
 
         async with aiohttp.ClientSession(connector=redditdownloader.makeconnector(proxy)) as session:

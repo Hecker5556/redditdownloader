@@ -55,7 +55,7 @@ class redditdownloader:
             nextlink = "https://reddit.com" + unescape(re.search(r"href=\"((?:/svc/shreddit/comments/).*?)\"", rtext).group(1))
             async with self.session.get(nextlink, proxy=self.proxy) as r:
                 comments = await r.text()
-            thecomment = re.search(fr"thingId=\"(?:.*?){commentid}\"(?:[\s\S]*?)parentId=\"(?:.*?){commentid}\"", comments).group(0)
+            thecomment = comments[comments.find(commentid):comments.rfind(commentid)]
             media['author'] = re.search(r"author=\"(.*?)\"", thecomment).group(1)
             if caption := re.search(r"<p>([\s\S]*?)</p>", thecomment):
                 caption = unescape(caption.group(1))

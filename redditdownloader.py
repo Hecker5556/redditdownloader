@@ -3,247 +3,206 @@ from html import unescape
 from datetime import datetime
 from tqdm.asyncio import tqdm
 from aiohttp_socks import ProxyConnector
-import platform
 class redditdownloader:
-    def makeconnector(proxy: str = None):
-        connector = aiohttp.TCPConnector()
-        if proxy:
-            if "socks" in proxy:
-                connector = ProxyConnector.from_url(proxy)
-        return connector
-    async def main(link: str, proxy: str = None):
-        patternvideo = r'packaged-media-json=\"{&quot;playbackMp4s&quot;:((.*?)}}}]})'
+    def _make_connector(self, proxy: str = None):
+        self.proxy = proxy if proxy and proxy.startswith("http") else None
+        return ProxyConnector.from_url(proxy) if proxy and proxy.startswith("socks") else aiohttp.TCPConnector()
+    async def download(self, link: str, proxy: str = None, dont_download: bool = False):
+        if not hasattr(self, "session") or self.session.closed():
+            async with aiohttp.ClientSession(connector=self._make_connector(proxy)) as session:
+                self.session = session
+                return await self._download(link, proxy, dont_download)
+        else:
+            return await self._download(link, proxy, dont_download)
+    def _clear(self, x: str):
+        while x.startswith("-"):
+            x = x[1:]
+        return "".join([i for i in x if i not in "\\/:*?<>|()"])
+    async def _download(self, link: str, proxy: str = None, dont_download: bool = False):
+        patternvideo = r'packaged-media-json=\"(.*?)\"'
         patternmanifest = r'((https://v\.redd\.it/(?:.*?)/)HLSPlaylist\.m3u8\?(?:.*?))\"'
         patterncaption = r'<shreddit-title title=\"(.*?)\"></shreddit-title>'
         patterndescription = r"<div class=\"text-neutral-content\" slot=\"text-body\">([\s\S]*?)</div>"
         patterndescription2 = r"<p>([\s\S]*?)</p>"
         patternlinks = r"<a(?:[\s\S]*?)>(.*?)</a(?:[\s\S]*?)>"
         authorpattern = r"author=\"(.*?)\""
+        srcsetpattern = r"srcSet=\"(.*?)\""
+        slideshowpattern = r"<li slot=\"page-\d+\"(?:[\s\S]*?)/>"
+        datapattern = r"data=\"(.*?)\"[\s\S]*?>"
+        commentpattern = r"https://(?:www\.)?reddit\.com/(?:.*?)/(?:.*?)/comments/(?:.*?)/comment/(.*?)(?:/|$)"
         headers = {
         'Referer': 'https://www.reddit.com/',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36' if platform.system() == "Windows" else "'Mozilla/5.0 (X11; Linux x86_64; rv:91.0) Gecko/20100101 Firefox/91.0'",
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36',
         'Range': 'bytes=0-',
         }
-
-        async with aiohttp.ClientSession(connector=redditdownloader.makeconnector(proxy)) as session:
-            async with session.get(link, headers=headers, proxy=proxy if proxy and proxy.startswith("http") else None) as r:
-                rtext = await r.text()
-                with open('response.txt', 'w', encoding="utf-8") as f1:
-                    f1.write(rtext)
-            mainurls = re.findall(patternvideo, rtext)
-            manifesturls = re.findall(patternmanifest, rtext)
-            caption = re.findall(patterncaption, rtext)
-            description = re.findall(patterndescription, rtext)
-            author = re.findall(authorpattern, rtext)
-            if description:
-                description = re.findall(patterndescription2, description[0])
-            thetext = {"caption": caption[0] if caption else caption, "description": "\n".join([d.lstrip().rstrip() for d in description]) if description else description, "author": author}
-            if thetext.get("description"):
-                thetext['description'] = re.sub(patternlinks, lambda match: match.group(1), thetext['description'])
-                thetext['description'] = unescape(thetext['description'])
-            postinfo = None
-            if mainurls:
-                
-                mainurls = json.loads(unescape(mainurls[0][0]))
-                postinfo = {}
-                for index, value in enumerate(mainurls['permutations']):
-                    while True:
-                        try:
-                            async with session.get(value['source']['url'], timeout=5, proxy=proxy if proxy and proxy.startswith("http") else None) as r:
-                                contentlength = int(r.headers.get('content-length'))
-                            postinfo[index] = {'url': value['source']['url'],
-                                                'width': value['source']['dimensions']['width'],
-                                                'height': value['source']['dimensions']['height'],
-                                                'duration': mainurls['duration'],
-                                            'contentlength': contentlength}
-                            break
-                        except asyncio.exceptions.TimeoutError:
-                            print('timedout! retrying in 3 seconds')
-                            await asyncio.sleep(3)
-                            continue
-                postinfo = sorted(postinfo.items(), key=lambda x: x[1].get('contentlength'), reverse=True)
-                temp = {}
-                for i in postinfo:
-                    temp[i[0]] = i[1]
-                postinfo = temp
-            
-            elif manifesturls:
-                manifesturl = manifesturls[0][0]
-                mainurl = manifesturls[0][1]
-                async with session.get(manifesturl, proxy=proxy if proxy and proxy.startswith("http") else None) as response:
-                    responsetext = await response.text()
-                audioformats = {}
-                videoformats = {}
-                for i in responsetext.split('\n'):
-                    if i.startswith('#EXT-X-MEDIA:URI='):
-                        audiourlpattern = r'URI=\"(.*?)\"'
-                        audioidpattern = r'GROUP-ID=\"(.*?)\"'
-                        audioformats[re.findall(audioidpattern, i)[0]] = re.findall(audiourlpattern, i)[0]
-                videoformatspattern = r'#EXT-X-STREAM-INF:(?:[\s\S.]*?)AUDIO=\"(.*?)\"(?:,SUBTITLES=\"subs\")?\n(.*?)\.m3u8'
-                matches = re.findall(videoformatspattern, responsetext)
-                for match in matches:
-                    videoformats[match[1]] = match[0]
-                videoformats = sorted(videoformats.items(), key=lambda x: int(x[0].split('_')[1]), reverse=True)
-                postinfo = []
-                for i in videoformats:
-                    postinfo.append((mainurl + i[0]+'.ts', mainurl + audioformats[i[1]].replace('.m3u8', '.aac')))
-                
-                    
-            else:
-                urls = []
-                srcsetpattern = r"srcset=\"(.*?)\""
-                lazysrcsets = re.findall(srcsetpattern, rtext)
-                if lazysrcsets:
-                    links = []
-                    for i in lazysrcsets:
-                        if i.split(", ")[-1].split(" ")[0].replace("amp;", "") not in links:
-                            links.append(i.split(", ")[-1].split(" ")[0].replace("amp;", ""))
-                    return links, thetext
-                listpattern = r"<li slot=\"page-(?:\d*?)\"([\s\S]*?)</li>"
-                lists = re.findall(listpattern, rtext)
-                if lists:
-                    for page in lists:
-                        matches = re.findall(srcsetpattern, page)
-                        if not matches:
-                            continue
-                        images = matches[0].split(",")
-                        images = [image.split()[0].replace("amp;", "") for image in images]
-                        urls.append(images[-1])
-                if len(urls) > 0:
-                    return urls, thetext
-                else:
-                    patternimage = r'data=\"(.*?)\"'
-                    data = re.findall(patternimage, rtext)
-                    if data:
-                        data = json.loads(unescape(data[0]))
-
-                        if data.get('post').get('type') != 'text' and data.get('post').get('type') != "multi_media":
-                            return data.get('post').get('url'), thetext
-                    return None, thetext
-        return postinfo, thetext
-    async def download(link, maxsize: int = None, proxy: str = None):
-        postinfo, thetext = await redditdownloader.main(link, proxy)
-        if not postinfo:
-            return None, thetext
-        filenames = None
-        author = thetext.get("author")[0]
-        if isinstance(postinfo, dict):
-            for key, value in postinfo.items():
-                if not maxsize:
-                    pass
-                else:
-                    if value.get('contentlength')/(1024*1024) > maxsize:
-                        continue
-                if not author:
-                    author = "redditvideo"
-                filename = f'{author}-{str(datetime.now().timestamp()).replace(".", "")}.mp4'
-                async with aiofiles.open(filename, 'wb') as f1:
-                    async with aiohttp.ClientSession(connector=redditdownloader.makeconnector(proxy)) as session:
-                        async with session.get(value.get('url'), proxy=proxy if proxy and proxy.startswith("http") else None) as r:
-                            progress = tqdm(total=int(r.headers.get('content-length')), unit='iB', unit_scale=True)
-                            while True:
-                                chunk = await r.content.read(1024)
-                                if not chunk:
-                                    break
-                                await f1.write(chunk)
-                                progress.update(len(chunk))
-                            progress.close()
-                            break
-        elif isinstance(postinfo, str):
-            filetype = postinfo.split(".")[-1]
-            if filetype not in ["jpeg", "jpg", "png"]:
-                filetype = "jpg"
-            if not author:
-                author = 'redditimage'
-            filename = f'{author}-{round(datetime.now().timestamp())}.{filetype}'
-            async with aiofiles.open(filename, 'wb') as f1:
-                async with aiohttp.ClientSession(connector=redditdownloader.makeconnector(proxy)) as session:
-                    async with session.get(postinfo, allow_redirects=False, proxy=proxy if proxy and proxy.startswith("http") else None) as r:
-                        progress = tqdm(total=int(r.headers.get('content-length'))  if not r.headers.get('Transfer-Encoding') == 'chunked' else None, unit='iB', unit_scale=True)
-                        while True:
-                            chunk = await r.content.read(1024)
-                            if not chunk:
-                                break
-                            await f1.write(chunk)
-                            progress.update(len(chunk))
-                        progress.close()
-        elif isinstance(postinfo, list) and all(isinstance(item, str) for item in postinfo):
-            filenames = []
-            if not author:
-                author = "redditimage"
-            async with aiohttp.ClientSession(connector=redditdownloader.makeconnector(proxy)) as session:
-                for index, url in enumerate(postinfo):
-                    filename = f'{author}-{round(datetime.now().timestamp())}-{index}.{"png" if "format=png" in url else "jpg"}'
-                    filenames.append(filename)
-                    async with aiofiles.open(filename, 'wb') as f1:
-                        async with session.get(url, proxy=proxy if proxy and proxy.startswith("http") else None) as r:
-                            progress = tqdm(total=int(r.headers.get('content-length')), unit='iB', unit_scale=True)
-                            while True:
-                                chunk = await r.content.read(1024)
-                                if not chunk:
-                                    break
-                                await f1.write(chunk)
-                                progress.update(len(chunk))
-                            progress.close()
-        elif isinstance(postinfo, list) and all(isinstance(item, tuple) for item in postinfo):
-            if not author:
-                author = "redditvideo"
-            filename = f"{author}-{str(datetime.now().timestamp()).replace('.', '')}.mp4"
-            async def _download(link: str, filename: str, progress: tqdm, session: aiohttp.ClientSession):
+        async with self.session.get(link, headers=headers, proxy=self.proxy) as r:
+            rtext = await r.text("utf-8")
+        media = {'link': link,
+                 'video_url': None,
+                 'manifest_url': None,
+                 'image': None,
+                 'gif': None, 
+                 'image_gallery': None,
+                 'caption': None,
+                 'description': None,
+                 'author': "temp",
+                 'filenames': []}
+        if author := re.search(authorpattern, rtext):
+            author = unescape(author.group(1))
+            media['author'] = author
+        if comment := re.search(commentpattern, link):
+            commentid = comment.group(1)
+            nextlink = "https://reddit.com" + unescape(re.search(r"href=\"((?:/svc/shreddit/comments/).*?)\"", rtext).group(1))
+            async with self.session.get(nextlink, proxy=self.proxy) as r:
+                comments = await r.text()
+            thecomment = re.search(fr"thingId=\"(?:.*?){commentid}\"(?:[\s\S]*?)parentId=\"(?:.*?){commentid}\"", comments).group(0)
+            media['author'] = re.search(r"author=\"(.*?)\"", thecomment).group(1)
+            if caption := re.search(r"<p>([\s\S]*?)</p>", thecomment):
+                caption = unescape(caption.group(1))
+                media['caption'] = caption
+            elif image := re.search(r"faceplate-img\n +src=\"(.*?)\"", thecomment):
+                image = unescape(image.group(1))
+                media['image'] = image
+                if not dont_download:
+                    filename = f"{self._clear(media['author'])}-{int(datetime.now().timestamp())}"
+                    filename = await self._download_image(media['image'], filename)
+                    media['filenames'].append(filename)
+            return media
+        if data := re.search(patternvideo, rtext):
+            data = unescape(data.group(1))
+            data = json.loads(data)
+            media['video_url'] = data['playbackMp4s']['permutations'][-1]['source']['url']
+            if not dont_download:
+                filename = f"{self._clear(media['author'])}-{int(datetime.now().timestamp())}.mp4"
+                await self._download_video(media['video_url'], filename)
+                media['filenames'].append(filename)
+        elif manifests := re.search(patternmanifest, rtext):
+            manifests = manifests.group(1)
+            media['manifest_url'] = unescape(manifests)
+            if not dont_download:
+                filename = f"{self._clear(media['author'])}-{int(datetime.now().timestamp())}.mp4"
+                await self._download_video_manifest(media['manifest_url'], filename)
+                media['filenames'].append(filename)
+        elif image := re.search(srcsetpattern, rtext):
+            image = list(map(lambda x: x.split(' ')[0], unescape(image.group(1)).split(', ')))[-1]
+            media['image'] = image
+            if not dont_download:
+                filename = f"{self._clear(media['author'])}-{int(datetime.now().timestamp())}"
+                filename = await self._download_image(media['image'], filename)
+                media['filenames'].append(filename)
+        elif images := re.findall(slideshowpattern, rtext):
+            image_links = []
+            srcsetpattern2 = re.compile(r"srcset=\"(.*?)\"")
+            lazydata = re.compile(r"data-lazy-src=\"(.*?)\"")
+            for img_ in images:
+                img = list(map(lambda x: x.split(' ')[0], unescape(re.search(srcsetpattern2, img_).group(1)).split(', ')))[-1]
+                if not img:
+                    img = unescape(re.search(lazydata, img_).group(1))
+                    print(img)
+                image_links.append(img)
+            media['image_gallery'] = image_links
+            if not dont_download:
+                for index, image in enumerate(media['image_gallery']):
+                    filename = f"{self._clear(media['author'])}-{int(datetime.now().timestamp())}-{index}"
+                    filename = await self._download_image(image, filename)
+                    media['filenames'].append(filename)
+        elif gif := re.search(datapattern, rtext):
+            data = unescape(gif.group(1))
+            data = json.loads(data)
+            gif = data['post']['url']
+            media['gif'] = gif
+            if not dont_download:
+                filename = f"{self._clear(media['author'])}-{int(datetime.now().timestamp())}"
+                filename = await self._download_image(media['gif'], filename)
+                media['filenames'].append(filename)
+        if caption := re.search(patterncaption, rtext):
+            caption = unescape(caption.group(1))
+            media['caption'] = caption
+        if description := re.search(patterndescription, rtext):
+            description = unescape(re.search(patterndescription2, description.group(0)).group(1))
+            description = re.sub(patternlinks, lambda x: x.group(1), description)
+            media['description'] = description
+        return media
+    async def _download_video(self, link: str, filename: str):
+        async with aiofiles.open(filename, 'wb') as f1:
+            async with self.session.get(link, proxy=self.proxy) as r:
+                progress = tqdm(total=int(r.headers.get("content-length")), unit='iB', unit_scale=True, colour="green")
                 while True:
-                    try:
-                        async with session.get(link, proxy=proxy if proxy and proxy.startswith("http") else None) as response:
-                            async with aiofiles.open(filename, 'wb') as f1:
-                                while True:
-                                    chunk = await response.content.read(1024)
-
-                                    if not chunk:
-                                        break
-                                    await f1.write(chunk)
-                                    progress.update(len(chunk))
-                            return
-                    except aiohttp.client_exceptions.ServerTimeoutError:
-                        continue
-
-            timeout = aiohttp.ClientTimeout(total=None, sock_read=3, sock_connect=3)
-            async with aiohttp.ClientSession(timeout=timeout, connector=redditdownloader.makeconnector(proxy)) as session:
-                for url, audiourl in postinfo:
-                    totalsize = 0
-                    while True:
-                        try:
-                            async with session.get(url, timeout=3, proxy=proxy if proxy and proxy.startswith("http") else None) as r:
-                                totalsize += int(r.headers.get('content-length'))
-                            async with session.get(audiourl, proxy=proxy if proxy and proxy.startswith("http") else None) as r:
-                                totalsize += int(r.headers.get('content-length'))
-                            break
-                        except asyncio.exceptions.TimeoutError:
-                            print('rate limited, waiting 5 seconds...')
-                            await asyncio.sleep(5)
-                            continue
-
-                        
-                    if maxsize:
-                        if totalsize/(1024*1024) > maxsize:
-                            continue
-                    progress = tqdm(total=totalsize, unit='iB', unit_scale=True, colour='red')
-                    tasks = [_download(url, url.split('/')[-1], progress, session), _download(audiourl, audiourl.split('/')[-1], progress, session)]
-                    await asyncio.gather(*tasks)
-                    progress.close()
-                    process = await asyncio.subprocess.create_subprocess_exec(*f"ffmpeg -i {url.split('/')[-1]} -i {audiourl.split('/')[-1]} -c copy -map 0:v:0 -map 1:a:0 -y {filename}".split(), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-                    stdout, stderr = await process.communicate()
-                    if maxsize:
-                        if os.path.getsize(filename)/(1024*1024) >maxsize:
-                            continue
-                        else:
-                            break
-                    else:
+                    chunk = await r.content.read(1024)
+                    if not chunk:
                         break
-        return (filename, thetext)  if not filenames else (filenames, thetext)
-if __name__ == '__main__':
+                    await f1.write(chunk)
+                    progress.update(len(chunk))
+                progress.close()
+    async def _download_video_manifest(self, link: str, filename: str):
+        async with self.session.get(link, proxy=self.proxy) as r:
+            rtext = await r.text("utf-8")
+        mainurl = link.split("HLSPlaylist")[0]
+        audios = {}
+        audiourlpattern = r'URI=\"(.*?)\"'
+        audioidpattern = r'GROUP-ID=\"(.*?)\"'
+        videoaudiopattern = r'AUDIO=\"(\d+)\"'
+        videoresolutionpattern = r'RESOLUTION=(\d+x\d+)'
+        formats = {}
+        for index, line in enumerate(rtext.split("\n")):
+            if line.startswith("#EXT-X-MEDIA:URI="):
+                audios[re.search(audioidpattern, line).group(1)] = f"{mainurl}{re.search(audiourlpattern, line).group(1)}"
+            elif line.startswith("#EXT-X-STREAM-INF"):
+                formats[re.search(videoresolutionpattern, line).group(1)] = {"video": mainurl + rtext.split("\n")[index+1], "audio": audios.get(re.search(videoaudiopattern, line).group(1))}
+        for _, value in formats.items():
+            tasks: list[asyncio.Task] = []
+            tasks.append(asyncio.create_task(self._download_video_manifest_worker(value.get('video'), mainurl)))
+            tasks.append(asyncio.create_task(self._download_video_manifest_worker(value.get('audio'), mainurl)))
+            resultfiles = await asyncio.gather(*tasks)
+            command = ["-i", resultfiles[0], "-i", resultfiles[1], '-c', 'copy', '-map', '0:v:0', '-map', '1:a:0', '-y', filename]
+            process = await asyncio.create_subprocess_exec("ffmpeg", *command)
+            await process.wait()
+            [os.remove(file) for file in resultfiles]
+            break
+    async def _download_video_manifest_worker(self, link: str, mainurl: str):
+        tempfile = f"tempfile-{int(datetime.now().timestamp())}."
+        async with self.session.get(link, proxy=self.proxy) as r:
+            while True:
+                line = await r.content.readline()
+                if ".ts" in line.decode() or ".aac" in line.decode():
+                    if ".ts" in line.decode() and tempfile.endswith("."):
+                        tempfile += "mp4"
+                    elif ".aac" in line.decode() and tempfile.endswith("."):
+                        tempfile += "aac"
+                    link = mainurl + line.decode()
+                    break
+                if not line:
+                    raise ConnectionError(f"something went wrong when getting {link}")
+        async with aiofiles.open(tempfile, 'wb') as f1:
+            async with self.session.get(link, proxy=self.proxy) as r:
+                progress = tqdm(total=int(r.headers.get("content-length")), unit='iB', unit_scale=True, colour="green")
+                while True:
+                    chunk = await r.content.read(1024)
+                    if not chunk:
+                        break
+                    await f1.write(chunk)
+                    progress.update(len(chunk))
+                progress.close()
+        return tempfile
+    async def _download_image(self, link: str, filename: str):
+        async with self.session.get(link, proxy=self.proxy) as r:
+            filename += "." + r.headers.get('content-type').split('/')[1]
+            progress = tqdm(total=int(r.headers.get("content-length")), unit='iB', unit_scale=True, colour="green")
+            async with aiofiles.open(filename, 'wb') as f1:
+                while True:
+                    chunk = await r.content.read(1024)
+                    if not chunk:
+                        break
+                    await f1.write(chunk)
+                    progress.update(len(chunk))
+            progress.close()
+            return filename
+if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description='download videos and audios')
-    parser.add_argument('link', type=str, help='link to the reddit post')
-    parser.add_argument('--maxsize', '-s', type=int, help='maximum size of video')
-    parser.add_argument("--proxy", type=str, help="proxy")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("link", type=str, help="link to post")
+    parser.add_argument("--proxy", type=str, help="proxy to use")
+    parser.add_argument("--no-download", "-nd", action="store_true", help="whether to not download and just return media links")
     args = parser.parse_args()
-    print(asyncio.run(redditdownloader.download(args.link, args.maxsize, args.proxy)))
+    result = asyncio.run(redditdownloader().download(args.link, args.proxy, args.no_download))
+    print(result)

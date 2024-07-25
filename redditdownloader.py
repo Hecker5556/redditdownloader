@@ -109,12 +109,13 @@ class redditdownloader:
         elif gif := re.search(datapattern, rtext):
             data = unescape(gif.group(1))
             data = json.loads(data)
-            gif = data['post']['url']
-            media['gif'] = gif
-            if not dont_download:
-                filename = f"{self._clear(media['author'])}-{int(datetime.now().timestamp())}"
-                filename = await self._download_image(media['gif'], filename)
-                media['filenames'].append(filename)
+            if data['post']['type'] != "text":
+                gif = data['post']['url']
+                media['gif'] = gif
+                if not dont_download:
+                    filename = f"{self._clear(media['author'])}-{int(datetime.now().timestamp())}"
+                    filename = await self._download_image(media['gif'], filename)
+                    media['filenames'].append(filename)
         if caption := re.search(patterncaption, rtext):
             caption = unescape(caption.group(1))
             media['caption'] = caption

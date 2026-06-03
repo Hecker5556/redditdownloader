@@ -1,209 +1,381 @@
-import aiohttp, asyncio, re, json, aiofiles, os
-from html import unescape
+from curl_cffi.requests import AsyncSession, Response
+import asyncio
+import aiofiles
+import re
+from typing import Literal
+import os
 from datetime import datetime
-from tqdm.asyncio import tqdm
-from aiohttp_socks import ProxyConnector
-class redditdownloader:
-    def _make_connector(self, proxy: str = None):
-        self.proxy = proxy if proxy and proxy.startswith("http") else None
-        return ProxyConnector.from_url(proxy) if proxy and proxy.startswith("socks") else aiohttp.TCPConnector()
-    async def download(self, link: str, proxy: str = None, dont_download: bool = False):
-        if not hasattr(self, "session") or self.session.closed():
-            async with aiohttp.ClientSession(connector=self._make_connector(proxy)) as session:
-                self.session = session
-                return await self._download(link, proxy, dont_download)
-        else:
-            return await self._download(link, proxy, dont_download)
-    def _clear(self, x: str):
-        while x.startswith("-"):
-            x = x[1:]
-        return "".join([i for i in x if i not in "\\/:*?<>|()"])
-    async def _download(self, link: str, proxy: str = None, dont_download: bool = False):
-        patternvideo = r'packaged-media-json=\"(.*?)\"'
-        patternmanifest = r'((https://v\.redd\.it/(?:.*?)/)HLSPlaylist\.m3u8\?(?:.*?))\"'
-        patterncaption = r'<shreddit-title title=\"(.*?)\"></shreddit-title>'
-        patterndescription = r"<div class=\"text-neutral-content\" slot=\"text-body\">([\s\S]*?)</div>"
-        patterndescription2 = r"<p>([\s\S]*?)</p>"
-        patternlinks = r"<a(?:[\s\S]*?)>(.*?)</a(?:[\s\S]*?)>"
-        authorpattern = r"author=\"(.*?)\""
-        srcsetpattern = r"srcSet=\"(.*?)\""
-        slideshowpattern = r"<li slot=\"page-\d+\"(?:[\s\S]*?)/>"
-        datapattern = r"data=\"(.*?)\"[\s\S]*?>"
-        commentpattern = r"https://(?:www\.)?reddit\.com/(?:.*?)/(?:.*?)/comments/(?:.*?)/comment/(.*?)(?:/|$)"
-        headers = {
-        'Referer': 'https://www.reddit.com/',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36',
-        'Range': 'bytes=0-',
+import mimetypes
+import traceback
+import json
+from html import unescape
+
+class REDDITDOWNLOADER:
+    def __init__(self, session: AsyncSession = None, proxy: str = None, ffmpegPath: str = None):
+        """
+        Args:
+            session (curl_cffi.requests.AsyncSession) [optional] - provided session to make requests with
+            proxy (str) [optional] - proxy to use in a new asyncsession
+            ffmpegPath (str) [optional] - path to ffmpeg binary if not available in directory
+        """
+        self.session = session
+        self.proxy = proxy
+        self.closeSession = None
+        self.ffmpegPath = ffmpegPath
+        self.headers = {
+            'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'accept-language': 'en-US,en;q=0.5',
+            'priority': 'u=0, i',
+            'sec-ch-ua': '"Chromium";v="148", "Google Chrome";v="148", "Not/A)Brand";v="99"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"Windows"',
+            'sec-fetch-dest': 'document',
+            'sec-fetch-mode': 'navigate',
+            'sec-fetch-site': 'same-origin',
+            'sec-gpc': '1',
+            'upgrade-insecure-requests': '1',
+            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36',
         }
-        async with self.session.get(link, headers=headers, proxy=self.proxy) as r:
-            rtext = await r.text("utf-8")
-        media = {'link': link,
-                 'video_url': None,
-                 'manifest_url': None,
-                 'image': None,
-                 'gif': None, 
-                 'image_gallery': None,
-                 'caption': None,
-                 'description': None,
-                 'author': "temp",
-                 'filenames': []}
-        if author := re.search(authorpattern, rtext):
-            author = unescape(author.group(1))
-            media['author'] = author
-        if comment := re.search(commentpattern, link):
-            commentid = comment.group(1)
-            nextlink = "https://reddit.com" + unescape(re.search(r"href=\"((?:/svc/shreddit/comments/).*?)\"", rtext).group(1))
-            async with self.session.get(nextlink, proxy=self.proxy) as r:
-                comments = await r.text()
-            thecomment = comments[comments.find(commentid):comments.rfind(commentid)]
-            media['author'] = re.search(r"author=\"(.*?)\"", thecomment).group(1)
-            if caption := re.search(r"<p>([\s\S]*?)</p>", thecomment):
-                caption = unescape(caption.group(1))
-                media['caption'] = caption
-            elif image := re.search(r"faceplate-img\n +src=\"(.*?)\"", thecomment):
-                image = unescape(image.group(1))
-                media['image'] = image
-                if not dont_download:
-                    filename = f"{self._clear(media['author'])}-{int(datetime.now().timestamp())}"
-                    filename = await self._download_image(media['image'], filename)
-                    media['filenames'].append(filename)
-            return media
-        if data := re.search(patternvideo, rtext):
-            data = unescape(data.group(1))
-            data = json.loads(data)
-            media['video_url'] = data['playbackMp4s']['permutations'][-1]['source']['url']
-            if not dont_download:
-                filename = f"{self._clear(media['author'])}-{int(datetime.now().timestamp())}.mp4"
-                await self._download_video(media['video_url'], filename)
-                media['filenames'].append(filename)
-        elif manifests := re.search(patternmanifest, rtext):
-            manifests = manifests.group(1)
-            media['manifest_url'] = unescape(manifests)
-            if not dont_download:
-                filename = f"{self._clear(media['author'])}-{int(datetime.now().timestamp())}.mp4"
-                await self._download_video_manifest(media['manifest_url'], filename)
-                media['filenames'].append(filename)
-        elif image := re.search(srcsetpattern, rtext):
-            image = list(map(lambda x: x.split(' ')[0], unescape(image.group(1)).split(', ')))[-1]
-            media['image'] = image
-            if not dont_download:
-                filename = f"{self._clear(media['author'])}-{int(datetime.now().timestamp())}"
-                filename = await self._download_image(media['image'], filename)
-                media['filenames'].append(filename)
-        elif images := re.findall(slideshowpattern, rtext):
-            image_links = []
-            srcsetpattern2 = re.compile(r"srcset=\"(.*?)\"")
-            lazydata = re.compile(r"data-lazy-src=\"(.*?)\"")
-            for img_ in images:
-                img = list(map(lambda x: x.split(' ')[0], unescape(re.search(srcsetpattern2, img_).group(1)).split(', ')))[-1]
-                if not img:
-                    img = unescape(re.search(lazydata, img_).group(1))
-                    print(img)
-                image_links.append(img)
-            media['image_gallery'] = image_links
-            if not dont_download:
-                for index, image in enumerate(media['image_gallery']):
-                    filename = f"{self._clear(media['author'])}-{int(datetime.now().timestamp())}-{index}"
-                    filename = await self._download_image(image, filename)
-                    media['filenames'].append(filename)
-        elif gif := re.search(datapattern, rtext):
-            data = unescape(gif.group(1))
-            data = json.loads(data)
-            if data['post']['type'] != "text":
-                gif = data['post']['url']
-                media['gif'] = gif
-                if not dont_download:
-                    filename = f"{self._clear(media['author'])}-{int(datetime.now().timestamp())}"
-                    filename = await self._download_image(media['gif'], filename)
-                    media['filenames'].append(filename)
-        if caption := re.search(patterncaption, rtext):
-            caption = unescape(caption.group(1))
-            media['caption'] = caption
-        if description := re.search(patterndescription, rtext):
-            description = unescape(re.search(patterndescription2, description.group(0)).group(1))
-            description = re.sub(patternlinks, lambda x: x.group(1), description)
-            media['description'] = description
-        return media
-    async def _download_video(self, link: str, filename: str):
-        async with aiofiles.open(filename, 'wb') as f1:
-            async with self.session.get(link, proxy=self.proxy) as r:
-                progress = tqdm(total=int(r.headers.get("content-length")), unit='iB', unit_scale=True, colour="green")
-                while True:
-                    chunk = await r.content.read(1024)
-                    if not chunk:
-                        break
-                    await f1.write(chunk)
-                    progress.update(len(chunk))
-                progress.close()
-    async def _download_video_manifest(self, link: str, filename: str):
-        async with self.session.get(link, proxy=self.proxy) as r:
-            rtext = await r.text("utf-8")
-        mainurl = link.split("HLSPlaylist")[0]
+        self.imageHeaders = {
+                'accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+                'accept-language': 'en-US,en;q=0.9',
+                'priority': 'u=1, i',
+                'referer': 'https://www.reddit.com/',
+                'sec-ch-ua': '"Chromium";v="148", "Google Chrome";v="148", "Not/A)Brand";v="99"',
+                'sec-ch-ua-mobile': '?0',
+                'sec-ch-ua-platform': '"Windows"',
+                'sec-fetch-dest': 'image',
+                'sec-fetch-mode': 'no-cors',
+                'sec-fetch-site': 'cross-site',
+                'sec-fetch-storage-access': 'none',
+                'sec-gpc': '1',
+                'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36',
+            }
+    async def __aenter__(self):
+        if (self.session is None):
+            self.session = AsyncSession(proxy=self.proxy)
+            self.closeSession = True
+        return self
+    async def __aexit__(self, exc, exctype, tb):
+        if (self.closeSession):
+            await self.session.close()
+        if (exc):
+            traceback.print_exception(exc, exctype, tb)
+
+    async def getManifestVideo(self, link: str, manifestType: Literal['video', 'gif'] = 'video'):
+        """
+        Args:
+            link (str) - link to m3u8 containing the audio and/or video
+            manifestType (Literal['video','gif']) - what type of manifest to expect
+        Returns:
+            list[dict[str, str]]
+            video:
+            ```json
+            {
+                "captions":         (str)
+                "bandwidth":        (str)
+                "averageBandwidth": (str)
+                "width":            (str)
+                "height":           (str)
+                "frameRate":        (str)
+                "codecs":           (str)
+                "audioUrl" :        (str)
+                "url":              (str)
+            }
+            ```
+            gif:
+            ```json
+            {
+                "bandwidth":    (str)
+                "width":        (str)
+                "height":       (str)
+                "codecs":       (str)
+                "url":          (str)
+            }
+            ```
+        """
+        r: Response = await self.session.get(link, headers=self.headers, impersonate="chrome", stream=True)
+        text = await r.atext()
         audios = {}
-        audiourlpattern = r'URI=\"(.*?)\"'
-        audioidpattern = r'GROUP-ID=\"(.*?)\"'
-        videoaudiopattern = r'AUDIO=\"(\d+)\"'
-        videoresolutionpattern = r'RESOLUTION=(\d+x\d+)'
-        formats = {}
-        for index, line in enumerate(rtext.split("\n")):
-            if line.startswith("#EXT-X-MEDIA:URI="):
-                audios[re.search(audioidpattern, line).group(1)] = f"{mainurl}{re.search(audiourlpattern, line).group(1)}"
-            elif line.startswith("#EXT-X-STREAM-INF"):
-                formats[re.search(videoresolutionpattern, line).group(1)] = {"video": mainurl + rtext.split("\n")[index+1], "audio": audios.get(re.search(videoaudiopattern, line).group(1))}
-        for _, value in formats.items():
-            tasks: list[asyncio.Task] = []
-            tasks.append(asyncio.create_task(self._download_video_manifest_worker(value.get('video'), mainurl)))
-            tasks.append(asyncio.create_task(self._download_video_manifest_worker(value.get('audio'), mainurl)))
-            resultfiles = await asyncio.gather(*tasks)
-            command = ["-i", resultfiles[0], "-i", resultfiles[1], '-c', 'copy', '-map', '0:v:0', '-map', '1:a:0', '-y', filename]
-            process = await asyncio.create_subprocess_exec("ffmpeg", *command)
-            await process.wait()
-            [os.remove(file) for file in resultfiles]
-            break
-    async def _download_video_manifest_worker(self, link: str, mainurl: str):
-        tempfile = f"tempfile-{int(datetime.now().timestamp())}."
-        async with self.session.get(link, proxy=self.proxy) as r:
-            while True:
-                line = await r.content.readline()
-                if ".ts" in line.decode() or ".aac" in line.decode():
-                    if ".ts" in line.decode() and tempfile.endswith("."):
-                        tempfile += "mp4"
-                    elif ".aac" in line.decode() and tempfile.endswith("."):
-                        tempfile += "aac"
-                    link = mainurl + line.decode()
-                    break
-                if not line:
-                    raise ConnectionError(f"something went wrong when getting {link}")
-        async with aiofiles.open(tempfile, 'wb') as f1:
-            async with self.session.get(link, proxy=self.proxy) as r:
-                progress = tqdm(total=int(r.headers.get("content-length")), unit='iB', unit_scale=True, colour="green")
-                while True:
-                    chunk = await r.content.read(1024)
-                    if not chunk:
-                        break
+        videos = []
+        audiosPattern = r"#EXT-X-MEDIA:URI=\"(.*?)\",TYPE=AUDIO,GROUP-ID=\"(.*?)\",NAME=\"(?:.*?)\",DEFAULT=(?:.*?),AUTOSELECT=(?:.*?)\n"
+        audiosList = await asyncio.to_thread(re.findall, audiosPattern, text)
+        for url, id in audiosList:
+            audios[id] = url
+        if manifestType == 'video':
+            videosPattern = r"#EXT-X-STREAM-INF:PROGRAM-ID=0,CLOSED-CAPTIONS=(.*?),BANDWIDTH=(\d+),AVERAGE-BANDWIDTH=(\d+),RESOLUTION=(\d+)x(\d+),FRAME-RATE=(\d+),CODECS=\"(.*?)\",AUDIO=\"(.*?)\"\n(.*?)m3u8"
+        else:
+            videosPattern = r"#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=(\d+),RESOLUTION=(\d+)x(\d+),CODECS=\"(.*?)\"\n(.*?)_v4\.m3u8"
+        videosList = await asyncio.to_thread(re.findall, videosPattern, text)
+        baseUrl = link.split("HLSPlaylist")[0]
+        if manifestType == 'video':
+            for captions, bandwidth, averageBandwidth, width, height, frameRate, codecs, audioId, url in videosList:
+                videos.append({
+                    "captions": captions,
+                    "bandwidth": bandwidth,
+                    "averageBandwidth": averageBandwidth,
+                    "width": width,
+                    "height": height,
+                    "frameRate": frameRate,
+                    "codecs": codecs,
+                    "audioUrl" : (baseUrl + audios.get(audioId)).replace("m3u8", "mp4" if url.startswith("CMAF") else "aac") if audios.get(audioId) is not None else None,
+                    "url": baseUrl + url + ("mp4" if url.startswith("CMAF") else "ts"),
+                })
+
+
+            videos = sorted(videos, key=lambda x: (int(x['width']) * int(x['height']), int(x['averageBandwidth'])), reverse=True)
+        else:
+            for bandwidth, width, height, codecs, url in videosList:
+                videos.append({
+                    "bandwidth": bandwidth,
+                    "width": width,
+                    "height": height,
+                    "codecs": codecs,
+                    "url": baseUrl + url + ".ts"
+                })
+            videos = sorted(videos, key=lambda x: (int(x['width']) * int(x['height']), int(x['bandwidth'])), reverse=True)
+        return videos
+    async def _downloadTask(self, filename: str, response: Response):
+        async with aiofiles.open(filename, "wb") as f1:
+            async for chunk in response.aiter_content(1024):
+                await f1.write(chunk)
+    async def _downloadMedia(self, link: str, typeMedia: Literal['video', 'image', 'gif'], postInfo: dict = None, maxFileSize: int = None):
+        if typeMedia == 'image':
+            if postInfo is not None:
+                if not os.path.exists(postInfo['subreddit']):
+                    os.mkdir(postInfo['subreddit'])
+                filename = os.path.join(postInfo['subreddit'], f"{postInfo['author']}-{datetime.now().timestamp():.0f}")
+            else:
+                filename = f"redditpost-{datetime.now().timestamp():.0f}"
+            r: Response = await self.session.get(link, headers = self.imageHeaders, impersonate="chrome", stream=True)
+            async with aiofiles.open(filename, "wb") as f1:
+                async for chunk in r.aiter_content(1024):
                     await f1.write(chunk)
-                    progress.update(len(chunk))
-                progress.close()
-        return tempfile
-    async def _download_image(self, link: str, filename: str):
-        async with self.session.get(link, proxy=self.proxy) as r:
-            filename += "." + r.headers.get('content-type').split('/')[1]
-            progress = tqdm(total=int(r.headers.get("content-length")), unit='iB', unit_scale=True, colour="green")
-            async with aiofiles.open(filename, 'wb') as f1:
-                while True:
-                    chunk = await r.content.read(1024)
-                    if not chunk:
-                        break
-                    await f1.write(chunk)
-                    progress.update(len(chunk))
-            progress.close()
+            ext = mimetypes.guess_extension(r.headers.get("content-type"))
+            if ext is None:
+                ext = ".png"
+            os.rename(filename, filename + ext)
+            filename += ext
             return filename
-if __name__ == "__main__":
-    import argparse
+        elif typeMedia == "video":
+            if postInfo is not None:
+                if not os.path.exists(postInfo['subreddit']):
+                    os.mkdir(postInfo['subreddit'])
+                filename = os.path.join(postInfo['subreddit'], f"{postInfo['author']}-{datetime.now().timestamp():.0f}")
+            else:
+                filename = f"redditpost-{datetime.now().timestamp():.0f}"
+            videos = await self.getManifestVideo(link)
+            if maxFileSize:
+                for i in videos:
+                    r: Response = await self.session.get(i['url'], stream=True, impersonate="chrome", headers=self.headers)
+                    k: Response = await self.session.get(i['audioUrl'], stream=True, impersonate="chrome", headers=self.headers)
+                    if (int(r.headers.get("content-length")) + int(k.headers.get("content-length")) <= maxFileSize):
+                        videoTask = asyncio.create_task(self._downloadTask(filename, r))
+                        audioTask = asyncio.create_task(self._downloadTask(filename + "_audio", k))
+                        await asyncio.gather(videoTask, audioTask)
+                        ext = mimetypes.guess_extension(r.headers.get("content-type"))
+                        if ext is None:
+                            ext = ".mp4"
+                        if self.ffmpegPath is None:
+                            self.ffmpegPath = "ffmpeg"
+                        arguments = ["-i", filename, "-i", filename + "_audio", "-c", "copy","-v", "error", filename + ext]
+                        process = await asyncio.subprocess.create_subprocess_exec(self.ffmpegPath, *arguments, stderr=asyncio.subprocess.PIPE)
+                        await process.wait()
+                        if (process.returncode != 0):
+                            raise Exception("Ffmpeg had error with combining video and audio stream:\n" + (await process.stderr.read()).decode())
+                        os.remove(filename)
+                        os.remove(filename + "_audio")
+                        return filename + ext
+                raise Exception("No videos under threshold")
+
+            else:
+                r: Response = await self.session.get(videos[0]['url'], stream=True, impersonate="chrome", headers=self.headers)
+                k: Response = await self.session.get(videos[0]['audioUrl'], stream=True, impersonate="chrome", headers=self.headers)
+                videoTask = asyncio.create_task(self._downloadTask(filename, r))
+                audioTask = asyncio.create_task(self._downloadTask(filename + "_audio", k))
+                await asyncio.gather(videoTask, audioTask)
+                ext = mimetypes.guess_extension(r.headers.get("content-type"))
+                if ext is None:
+                    ext = ".mp4"
+                if self.ffmpegPath is None:
+                    self.ffmpegPath = "ffmpeg"
+                arguments = ["-i", filename, "-i", filename + "_audio", "-c", "copy","-v", "error", filename + ext]
+                process = await asyncio.subprocess.create_subprocess_exec(self.ffmpegPath, *arguments, stderr=asyncio.subprocess.PIPE)
+                await process.wait()
+                if (process.returncode != 0):
+                    raise Exception("Ffmpeg had error with combining video and audio stream:\n" + (await process.stderr.read()).decode())
+                os.remove(filename)
+                os.remove(filename + "_audio")
+                return filename + ext
+        elif typeMedia == 'gif':
+            if postInfo is not None:
+                if not os.path.exists(postInfo['subreddit']):
+                    os.mkdir(postInfo['subreddit'])
+                filename = os.path.join(postInfo['subreddit'], f"{postInfo['author']}-{datetime.now().timestamp():.0f}")
+            else:
+                filename = f"redditpost-{datetime.now().timestamp():.0f}"
+            videos = await self.getManifestVideo(link, 'gif')
+            if maxFileSize is not None:
+                for i in videos:
+                    r: Response = await self.session.get(i['url'], stream=True, impersonate="chrome", headers=self.headers)
+                    if (int(r.headers.get("content-length")) <= maxFileSize):
+                        videoTask = await (self._downloadTask(filename, r))
+                        ext = mimetypes.guess_extension(r.headers.get("content-type"))
+                        if ext is None:
+                            ext = ".mp4"
+                        os.rename(filename, filename + ext)
+                        return filename + ext
+                raise Exception("No videos under threshold")
+            else:
+                r: Response = await self.session.get(videos[0]['url'], stream=True, impersonate="chrome", headers=self.headers)
+                videoTask = await (self._downloadTask(filename, r))
+                ext = mimetypes.guess_extension(r.headers.get("content-type"))
+                if ext is None:
+                    ext = ".mp4"
+                os.rename(filename, filename + ext)
+                return filename + ext
+                
+    async def download(self, link: str, downloadMedia: bool = True, maxFileSize: int = None) -> dict[str, str]:
+        """
+        Args:
+            link (str) - link to reddit post
+            downloadMedia (bool) [optional, True] - download media of post or just return after all info is fetched
+            maxFileSize (int) [optional, None] - max file size a video can be in bytes
+        Returns:
+            dict[str, str]
+            ```json
+            {
+                "title": "",
+                "language": "",
+                "type": "",
+                "subreddit": "",
+                "author": "",
+                "upvotes": "",
+                "upvoteRatio": "",
+                "commentsCount": "",
+                "awards": "",
+                "created": "",
+                "image": "",
+                "videoUrl": "",
+                "images": "",
+                "filenames": [
+                    
+                ]
+            }
+        """
+        r: Response = await self.session.get(link, impersonate="chrome", stream=True, headers=self.headers)
+        text = await r.atext()
+        solution_pattern = r"\)\(\"(.*?)\"\)\);"
+        solution = await asyncio.to_thread(re.search, solution_pattern, text)
+        if (solution is None):
+            async with aiofiles.open("response.txt", "w", encoding="utf-8") as f1:
+                await f1.write(text)
+            raise Exception("Couldn't solve javascript test, solution couldn't be found in page source")
+        solution = solution.group(1)
+        params = {}
+        params["solution"] = solution + solution
+        otherParams_pattern = r"<input type=\"hidden\" name=\"(.*?)\" value=\"(.*?)\"/>"
+        otherParams = await asyncio.to_thread(re.findall, otherParams_pattern, text)
+        for key, value in otherParams:
+            params[key] = value
+
+        r: Response = await self.session.get(link, impersonate="chrome", stream=True, params=params, headers=self.headers)
+        text = await r.atext()
+        postPattern = r"<shreddit-post class(?:.*?)subreddit-name=\"(.*?)\">"
+        postInfo = await asyncio.to_thread(re.search, postPattern, text)
+        if (postInfo is None):
+            async with aiofiles.open("response.txt", "w", encoding="utf-8") as f1:
+                await f1.write(text)
+            raise Exception("Couldn't get post info from page source")
+        post = postInfo.group(0)
+        subreddit = postInfo.group(1)
+        postInfoPattern = r"post-(.*?)=\"(.*?)\""
+        title = await asyncio.to_thread(re.findall, postInfoPattern, post)
+        postData = {}
+        for key, value in title:
+            postData[key] = unescape(value)
+        postData["subreddit"] = subreddit
+        authorPattern = r"author=\"(.*?)\""
+        author = await asyncio.to_thread(re.search, authorPattern, post)
+        postData['author'] = unescape(author.group(1))
+        upvotesPattern = r"score=\"(\d+)\""
+        upvotes = await asyncio.to_thread(re.search, upvotesPattern, post)
+        postData['upvotes'] = upvotes.group(1)
+        upvoteRatioPattern = r"upvote-ratio=\"([\d\.]+)\""
+        upvoteRatio = await asyncio.to_thread(re.search, upvoteRatioPattern, post)
+        postData['upvoteRatio'] = upvoteRatio.group(1)[:5]
+        commentsPattern = r"comment-count=\"(\d+)\""
+        commentsCount = await asyncio.to_thread(re.search, commentsPattern, post)
+        postData['commentsCount'] = commentsCount.group(1)
+        descriptionPattern = r"<shreddit-post-text-body slot=\"text-body\"([\s\S]*?)</shreddit-post-text-body>"
+        description = await asyncio.to_thread(re.search, descriptionPattern, text)
+        if (description is not None):
+            descriptionTextPattern = r"<p dir=\"auto\">([\s\S]*?)</p>"
+            postData['description'] = unescape("\n".join([x.strip().replace("<br>", "\n") for x in (await asyncio.to_thread(re.findall, descriptionTextPattern, description.group(1)))]))
+        awardsPattern = r"award-count=\"(\d+)\""
+        awards = await asyncio.to_thread(re.search, awardsPattern, post)
+        postData['awards'] = awards.group(1)
+        createdPattern = r"created-timestamp=\"(.*?)\""
+        created = await asyncio.to_thread(re.search, createdPattern, post)
+        postData['created'] = created.group(1)
+        if postData['type'] == 'image':
+            imagePattern = r"content-href=\"(.*?)\""
+            image = await asyncio.to_thread(re.search, imagePattern, text)
+            postData['image'] = image.group(1)
+            if downloadMedia:
+                postData['filenames'] = [await self._downloadMedia(postData['image'], 'image', postData)]
+        elif postData['type'] == 'video':
+            videoUrlPattern = r"<shreddit-player src=\"(.*?)\""
+            videoUrl = await asyncio.to_thread(re.search, videoUrlPattern, text)
+            postData['videoUrl'] = videoUrl.group(1).replace("&amp;", "&")
+            if downloadMedia:
+                postData['filenames'] = [await self._downloadMedia(postData['videoUrl'], postData['type'], postData, maxFileSize)]
+        elif postData['type'] == "gallery":
+            listPattern = r"<li slot=\"page-(\d+)\" class=\"(?:.*?)>([\s\S]*?)</li>"
+            imageList = await asyncio.to_thread(re.findall, listPattern, text)
+            postData['filenames'] = []
+            postData['images'] = []
+            srcPattern = r"src=\"(.*?)\""
+            slugPattern = r"v0-(.*?)\.(.*?)\?"
+            baseUrl = "https://i.redd.it/"
+            for pageNo, imageData in imageList:
+                url = (await asyncio.to_thread(re.search, srcPattern, imageData)).group(1)
+                slugExt = await asyncio.to_thread(re.search, slugPattern, url)
+                url = baseUrl + slugExt.group(1) + '.' + slugExt.group(2)
+                postData['images'].append(url)
+                if downloadMedia:
+                    file = await self._downloadMedia(url, "image", postData)
+                    newFilename = os.path.splitext(file)[0] + '-' + pageNo + os.path.splitext(file)[1]
+                    os.rename(file, newFilename)
+                    postData['filenames'].append(newFilename)
+        elif postData['type'] == 'gif':
+            imagePattern = r"content-href=\"(.*?)\""
+            image = await asyncio.to_thread(re.search, imagePattern, text)
+            if (image.group(1).endswith('.gif')):
+                postData['image'] = image.group(1)
+                if downloadMedia:
+                    postData['filenames'] = [await self._downloadMedia(postData['image'], 'image', postData)]
+            else:
+                videoUrlPattern = r"<shreddit-player src=\"(.*?)\""
+                videoUrl = await asyncio.to_thread(re.search, videoUrlPattern, text)
+                postData['videoUrl'] = videoUrl.group(1).replace("&amp;", "&")
+                if downloadMedia:
+                    postData['filenames'] = [await self._downloadMedia(postData['videoUrl'], 'gif', postData, maxFileSize)]
+        return postData
+async def main():
+    import argparse     
     parser = argparse.ArgumentParser()
-    parser.add_argument("link", type=str, help="link to post")
-    parser.add_argument("--proxy", type=str, help="proxy to use")
-    parser.add_argument("--no-download", "-nd", action="store_true", help="whether to not download and just return media links")
+    parser.add_argument("link", help="Link to post")
+    parser.add_argument("--proxy", "-p", help="Proxy to use in connection")
+    parser.add_argument("--max-size", "-m", help="Max size of video allowed to download in megabytes", type=float)
+    parser.add_argument("--no-download", "-n", help="Dont download the post", action="store_false", default=True)
     args = parser.parse_args()
-    result = asyncio.run(redditdownloader().download(args.link, args.proxy, args.no_download))
-    print(result)
+    if (args.max_size is not None):
+        maxSize = args.max_size * 1024 * 1024
+    else:
+        maxSize = None
+    async with REDDITDOWNLOADER(proxy=args.proxy) as rd:
+        result = await rd.download(args.link, maxFileSize = maxSize, downloadMedia=args.no_download)
+    print(json.dumps(result, indent=4, ensure_ascii=False))
+if __name__ == "__main__":
+    asyncio.run(main())

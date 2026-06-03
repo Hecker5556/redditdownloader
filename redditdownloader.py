@@ -299,6 +299,10 @@ class REDDITDOWNLOADER:
         author = await asyncio.to_thread(re.search, authorPattern, post)
         postData['author'] = unescape(author.group(1))
         upvotesPattern = r"score=\"(\d+)\""
+        authorAvatarPattern = r"icon=\"(.*?)\""
+        authorAvatar = await asyncio.to_thread(re.search, authorAvatarPattern, post)
+        if authorAvatar is not None:
+            postData['authorAvatar'] = authorAvatar.group(1)
         upvotes = await asyncio.to_thread(re.search, upvotesPattern, post)
         postData['upvotes'] = upvotes.group(1)
         upvoteRatioPattern = r"upvote-ratio=\"([\d\.]+)\""

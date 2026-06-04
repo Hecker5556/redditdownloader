@@ -9,19 +9,21 @@ import mimetypes
 import traceback
 import json
 from html import unescape
+import logging
 
 class REDDITDOWNLOADER:
     def __init__(self, session: AsyncSession = None, proxy: str = None, ffmpegPath: str = None):
         """
         Args:
             session (curl_cffi.requests.AsyncSession) [optional] - provided session to make requests with
-            proxy (str) [optional] - proxy to use in a new asyncsession
-            ffmpegPath (str) [optional] - path to ffmpeg binary if not available in directory
+            proxy (str) [optional, None] - proxy to use in a new asyncsession
+            ffmpegPath (str) [optional, None] - path to ffmpeg binary if not available in directory
         """
         self.session = session
         self.proxy = proxy
         self.closeSession = None
         self.ffmpegPath = ffmpegPath
+        self.logger = logging.getLogger(__name__)
         self.headers = {
             'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
             'accept-language': 'en-US,en;q=0.5',
@@ -264,23 +266,34 @@ class REDDITDOWNLOADER:
             }
         """
         r: Response = await self.session.get(link, impersonate="chrome", stream=True, headers=self.headers)
+        link = r.url
+        self.logger.debug(f"Made a GET request to {link}, status code: {r.status_code}")
         text = await r.atext()
-        solution_pattern = r"\)\(\"(.*?)\"\)\);"
-        solution = await asyncio.to_thread(re.search, solution_pattern, text)
-        if (solution is None):
-            async with aiofiles.open("response.txt", "w", encoding="utf-8") as f1:
-                await f1.write(text)
-            raise Exception("Couldn't solve javascript test, solution couldn't be found in page source")
-        solution = solution.group(1)
-        params = {}
-        params["solution"] = solution + solution
-        otherParams_pattern = r"<input type=\"hidden\" name=\"(.*?)\" value=\"(.*?)\"/>"
-        otherParams = await asyncio.to_thread(re.findall, otherParams_pattern, text)
-        for key, value in otherParams:
-            params[key] = value
+        maxTries = 5
+        while ("Reddit - Please wait for verification" in text and maxTries > 0):
+            solution_pattern = r"\)\(\"(.*?)\"\)\);"
+            solution = await asyncio.to_thread(re.search, solution_pattern, text)
+            if (solution is None):
+                async with aiofiles.open("response.txt", "w", encoding="utf-8") as f1:
+                    await f1.write(text)
+                raise Exception("Couldn't solve javascript test, solution couldn't be found in page source")
+            solution = solution.group(1)
+            self.logger.debug(f"Found solution string: {solution}")
+            params = {}
+            params["solution"] = solution + solution
+            otherParams_pattern = r"<input type=\"hidden\" name=\"(.*?)\" value=\"(.*?)\"/>"
+            otherParams = await asyncio.to_thread(re.findall, otherParams_pattern, text)
+            for key, value in otherParams:
+                params[key] = value
+                self.logger.debug(f"Found input param: {key}: {value}")
 
-        r: Response = await self.session.get(link, impersonate="chrome", stream=True, params=params, headers=self.headers)
-        text = await r.atext()
+            r: Response = await self.session.get(link, impersonate="chrome", stream=True, params=params, headers=self.headers)
+            link = r.url
+            self.logger.debug(f"Sent a GET request to {link} with parameters: {params}, status code: {r.status_code}")
+            text = await r.atext()
+            maxTries -= 1
+        if (maxTries == 0):
+            raise Exception("Reddit gave javascript test more than 5 times, exiting")
         postPattern = r"<shreddit-post class(?:.*?)subreddit-name=\"(.*?)\">"
         postInfo = await asyncio.to_thread(re.search, postPattern, text)
         if (postInfo is None):
@@ -288,12 +301,14 @@ class REDDITDOWNLOADER:
                 await f1.write(text)
             raise Exception("Couldn't get post info from page source")
         post = postInfo.group(0)
+        self.logger.debug(f"Found shreddit post class: {post}")
         subreddit = postInfo.group(1)
         postInfoPattern = r"post-(.*?)=\"(.*?)\""
         title = await asyncio.to_thread(re.findall, postInfoPattern, post)
         postData = {}
         for key, value in title:
             postData[key] = unescape(value)
+            self.logger.debug(f"Extracted {key}: {value} from shreddit post class")
         postData["subreddit"] = subreddit
         authorPattern = r"author=\"(.*?)\""
         author = await asyncio.to_thread(re.search, authorPattern, post)
@@ -315,7 +330,8 @@ class REDDITDOWNLOADER:
         description = await asyncio.to_thread(re.search, descriptionPattern, text)
         if (description is not None):
             descriptionTextPattern = r"<p dir=\"auto\">([\s\S]*?)</p>"
-            postData['description'] = unescape("\n".join([x.strip().replace("<br>", "\n") for x in (await asyncio.to_thread(re.findall, descriptionTextPattern, description.group(1)))]))
+            postData['description'] = unescape("\n".join([re.sub(r"<a(?:[\s\S]*?)?>(.*?)</a>", lambda match: match.group(1), x.strip().replace("<br>", "\n")) for x in (await asyncio.to_thread(re.findall, descriptionTextPattern, description.group(1)))]))
+            self.logger.debug(f"Found description of post")
         awardsPattern = r"award-count=\"(\d+)\""
         awards = await asyncio.to_thread(re.search, awardsPattern, post)
         postData['awards'] = awards.group(1)
@@ -373,12 +389,17 @@ async def main():
     parser.add_argument("--proxy", "-p", help="Proxy to use in connection")
     parser.add_argument("--max-size", "-m", help="Max size of video allowed to download in megabytes", type=float)
     parser.add_argument("--no-download", "-n", help="Dont download the post", action="store_false", default=True)
+    parser.add_argument("--verbose", "-v", help="Enable verbosity", action="store_true", default=False)
     args = parser.parse_args()
     if (args.max_size is not None):
         maxSize = args.max_size * 1024 * 1024
     else:
         maxSize = None
     async with REDDITDOWNLOADER(proxy=args.proxy) as rd:
+        if (args.verbose):
+            console = logging.StreamHandler()
+            rd.logger.addHandler(console)
+            rd.logger.setLevel(logging.DEBUG)
         result = await rd.download(args.link, maxFileSize = maxSize, downloadMedia=args.no_download)
     print(json.dumps(result, indent=4, ensure_ascii=False))
 if __name__ == "__main__":

@@ -312,20 +312,24 @@ class REDDITDOWNLOADER:
         postData["subreddit"] = subreddit
         authorPattern = r"author=\"(.*?)\""
         author = await asyncio.to_thread(re.search, authorPattern, post)
-        postData['author'] = unescape(author.group(1))
+        if author:
+            postData['author'] = unescape(author.group(1))
         upvotesPattern = r"score=\"(\d+)\""
         authorAvatarPattern = r"icon=\"(.*?)\""
         authorAvatar = await asyncio.to_thread(re.search, authorAvatarPattern, post)
         if authorAvatar is not None:
             postData['authorAvatar'] = authorAvatar.group(1)
         upvotes = await asyncio.to_thread(re.search, upvotesPattern, post)
-        postData['upvotes'] = upvotes.group(1)
+        if upvotes:
+            postData['upvotes'] = upvotes.group(1)
         upvoteRatioPattern = r"upvote-ratio=\"([\d\.]+)\""
         upvoteRatio = await asyncio.to_thread(re.search, upvoteRatioPattern, post)
-        postData['upvoteRatio'] = upvoteRatio.group(1)[:5]
+        if upvoteRatio:
+            postData['upvoteRatio'] = upvoteRatio.group(1)[:5]
         commentsPattern = r"comment-count=\"(\d+)\""
         commentsCount = await asyncio.to_thread(re.search, commentsPattern, post)
-        postData['commentsCount'] = commentsCount.group(1)
+        if commentsCount:
+            postData['commentsCount'] = commentsCount.group(1)
         descriptionPattern = r"<shreddit-post-text-body slot=\"text-body\"([\s\S]*?)</shreddit-post-text-body>"
         description = await asyncio.to_thread(re.search, descriptionPattern, text)
         if (description is not None):
@@ -334,10 +338,12 @@ class REDDITDOWNLOADER:
             self.logger.debug(f"Found description of post")
         awardsPattern = r"award-count=\"(\d+)\""
         awards = await asyncio.to_thread(re.search, awardsPattern, post)
-        postData['awards'] = awards.group(1)
+        if awards:
+            postData['awards'] = awards.group(1)
         createdPattern = r"created-timestamp=\"(.*?)\""
         created = await asyncio.to_thread(re.search, createdPattern, post)
-        postData['created'] = created.group(1)
+        if created:
+            postData['created'] = created.group(1)
         if postData['type'] == 'image':
             imagePattern = r"content-href=\"(.*?)\""
             image = await asyncio.to_thread(re.search, imagePattern, text)

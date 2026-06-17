@@ -97,6 +97,7 @@ class REDDITDOWNLOADER:
             ```
         """
         r: Response = await self.session.get(link, headers=self.headers, impersonate="chrome", stream=True)
+        self.logger.debug(f"Sent a {r.request.method} to {r.request.url} with status {r.status_code}")
         text = await r.atext()
         audios = {}
         videos = []
@@ -106,7 +107,7 @@ class REDDITDOWNLOADER:
             audios[id] = url
         if manifestType == 'video':
             if len(audios) > 0:
-                videosPattern = r"#EXT-X-STREAM-INF:PROGRAM-ID=0,CLOSED-CAPTIONS=(.*?),BANDWIDTH=(\d+),AVERAGE-BANDWIDTH=(\d+),RESOLUTION=(\d+)x(\d+),FRAME-RATE=(\d+),CODECS=\"(.*?)\",AUDIO=\"(.*?)\"\n(.*?)m3u8"
+                videosPattern = r"#EXT-X-STREAM-INF:PROGRAM-ID=0,CLOSED-CAPTIONS=(.*?),BANDWIDTH=(\d+),AVERAGE-BANDWIDTH=(\d+),RESOLUTION=(\d+)x(\d+),FRAME-RATE=(\d+),CODECS=\"(.*?)\",AUDIO=\"(.*?)\"(?:.*?)?\n(.*?)m3u8"
             else:
                 videosPattern = r"#EXT-X-STREAM-INF:PROGRAM-ID=0,CLOSED-CAPTIONS=(.*?),BANDWIDTH=(\d+),AVERAGE-BANDWIDTH=(\d+),RESOLUTION=(\d+)x(\d+),FRAME-RATE=(\d+),CODECS=\"(.*?)\"\n(.*?)m3u8"
         else:
@@ -166,6 +167,7 @@ class REDDITDOWNLOADER:
             else:
                 filename = f"redditpost-{datetime.now().timestamp():.0f}"
             r: Response = await self.session.get(link, headers = self.imageHeaders, impersonate="chrome", stream=True)
+            self.logger.debug(f"Sent a {r.request.method} to {r.request.url} with status {r.status_code}")
             async with aiofiles.open(filename, "wb") as f1:
                 async for chunk in r.aiter_content(1024):
                     await f1.write(chunk)
@@ -186,8 +188,10 @@ class REDDITDOWNLOADER:
             if maxFileSize:
                 for i in videos:
                     r: Response = await self.session.get(i['url'], stream=True, impersonate="chrome", headers=self.headers)
+                    self.logger.debug(f"Sent a {r.request.method} to {r.request.url} with status {r.status_code}")
                     if (i.get('audioUrl')):
                         k: Response = await self.session.get(i['audioUrl'], stream=True, impersonate="chrome", headers=self.headers)
+                        self.logger.debug(f"Sent a {r.request.method} to {r.request.url} with status {r.status_code}")
                         size = int(r.headers.get("content-length")) + int(k.headers.get("content-length"))
                     else:
                         size = int(r.headers.get("content-length"))
@@ -218,34 +222,35 @@ class REDDITDOWNLOADER:
 
             else:
                 r: Response = await self.session.get(videos[0]['url'], stream=True, impersonate="chrome", headers=self.headers)
+                self.logger.debug(f"Sent a {r.request.method} to {r.request.url} with status {r.status_code}")
                 if (videos[0].get('audioUrl')):
                     k: Response = await self.session.get(videos[0]['audioUrl'], stream=True, impersonate="chrome", headers=self.headers)
+                    self.logger.debug(f"Sent a {r.request.method} to {r.request.url} with status {r.status_code}")
                     size = int(r.headers.get("content-length")) + int(k.headers.get("content-length"))
                 else:
                     size = int(r.headers.get("content-length"))
-                if (size <= maxFileSize):
-                    if (videos[0].get('audioUrl')):
-                        videoTask = asyncio.create_task(self._downloadTask(filename, r))
-                        audioTask = asyncio.create_task(self._downloadTask(filename + "_audio", k))
-                        await asyncio.gather(videoTask, audioTask)
-                    else:
-                        await self._downloadTask(filename, r)
-                    ext = mimetypes.guess_extension(r.headers.get("content-type"))
-                    if ext is None:
-                        ext = ".mp4"
-                    if (videos[0].get('audioUrl')):
-                        if self.ffmpegPath is None:
-                            self.ffmpegPath = "ffmpeg"
-                        arguments = ["-i", filename, "-i", filename + "_audio", "-c", "copy","-v", "error", filename + ext]
-                        process = await asyncio.subprocess.create_subprocess_exec(self.ffmpegPath, *arguments, stderr=asyncio.subprocess.PIPE)
-                        await process.wait()
-                        if (process.returncode != 0):
-                            raise Exception("Ffmpeg had error with combining video and audio stream:\n" + (await process.stderr.read()).decode())
-                        os.remove(filename)
-                        os.remove(filename + "_audio")
-                    else:
-                        os.rename(filename, filename + ext)
-                    return filename + ext
+                if (videos[0].get('audioUrl')):
+                    videoTask = asyncio.create_task(self._downloadTask(filename, r))
+                    audioTask = asyncio.create_task(self._downloadTask(filename + "_audio", k))
+                    await asyncio.gather(videoTask, audioTask)
+                else:
+                    await self._downloadTask(filename, r)
+                ext = mimetypes.guess_extension(r.headers.get("content-type"))
+                if ext is None:
+                    ext = ".mp4"
+                if (videos[0].get('audioUrl')):
+                    if self.ffmpegPath is None:
+                        self.ffmpegPath = "ffmpeg"
+                    arguments = ["-i", filename, "-i", filename + "_audio", "-c", "copy","-v", "error", filename + ext]
+                    process = await asyncio.subprocess.create_subprocess_exec(self.ffmpegPath, *arguments, stderr=asyncio.subprocess.PIPE)
+                    await process.wait()
+                    if (process.returncode != 0):
+                        raise Exception("Ffmpeg had error with combining video and audio stream:\n" + (await process.stderr.read()).decode())
+                    os.remove(filename)
+                    os.remove(filename + "_audio")
+                else:
+                    os.rename(filename, filename + ext)
+                return filename + ext
         elif typeMedia == 'gif':
             if postInfo is not None:
                 if not os.path.exists(postInfo['subreddit']):
@@ -257,6 +262,7 @@ class REDDITDOWNLOADER:
             if maxFileSize is not None:
                 for i in videos:
                     r: Response = await self.session.get(i['url'], stream=True, impersonate="chrome", headers=self.headers)
+                    self.logger.debug(f"Sent a {r.request.method} to {r.request.url} with status {r.status_code}")
                     if (int(r.headers.get("content-length")) <= maxFileSize):
                         videoTask = await (self._downloadTask(filename, r))
                         ext = mimetypes.guess_extension(r.headers.get("content-type"))
@@ -267,6 +273,7 @@ class REDDITDOWNLOADER:
                 raise Exception("No videos under threshold")
             else:
                 r: Response = await self.session.get(videos[0]['url'], stream=True, impersonate="chrome", headers=self.headers)
+                self.logger.debug(f"Sent a {r.request.method} to {r.request.url} with status {r.status_code}")
                 videoTask = await (self._downloadTask(filename, r))
                 ext = mimetypes.guess_extension(r.headers.get("content-type"))
                 if ext is None:

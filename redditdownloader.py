@@ -377,7 +377,7 @@ class REDDITDOWNLOADER:
         descriptionPattern = r"<shreddit-post-text-body slot=\"text-body\"([\s\S]*?)</shreddit-post-text-body>"
         description = await asyncio.to_thread(re.search, descriptionPattern, text)
         if (description is not None):
-            descriptionTextPattern = r"<p dir=\"auto\">([\s\S]*?)</p>"
+            descriptionTextPattern = r"<p(?: dir=\"auto\")?>([\s\S]*?)</p>"
             postData['description'] = unescape("\n".join([re.sub(r"<a(?:[\s\S]*?)?>(.*?)</a>", lambda match: match.group(1), x.strip().replace("<br>", "\n")) for x in (await asyncio.to_thread(re.findall, descriptionTextPattern, description.group(1)))]))
             self.logger.debug(f"Found description of post")
         awardsPattern = r"award-count=\"(\d+)\""

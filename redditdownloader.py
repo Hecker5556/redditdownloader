@@ -341,9 +341,22 @@ class REDDITDOWNLOADER:
         postPattern = r"<shreddit-post class(?:.*?)subreddit-name=\"(.*?)\">"
         postInfo = await asyncio.to_thread(re.search, postPattern, text)
         if (postInfo is None):
-            async with aiofiles.open("response.txt", "w", encoding="utf-8") as f1:
-                await f1.write(text)
-            raise Exception("Couldn't get post info from page source")
+            redirectPattern = r"method=\"location\.replace\((.*?)\)\"></ac-call>"
+            redirectUrl = await asyncio.to_thread(re.search, redirectPattern, text)
+            if not redirectUrl:
+                async with aiofiles.open("response.txt", "w", encoding="utf-8") as f1:
+                    await f1.write(text)
+                raise Exception("Couldn't get post info from page source")
+            redirectUrl = 'https://reddit.com' + unescape(redirectUrl.group(1)).replace('"', '')
+            r: Response = await self.session.get(redirectUrl, impersonate="chrome", stream=True, headers=self.headers)
+            link = r.url
+            self.logger.debug(f"Sent a GET request to {link} with parameters: {params}, status code: {r.status_code}")
+            text = await r.atext()
+            postInfo = await asyncio.to_thread(re.search, postPattern, text)
+            if (postInfo is None):  
+                async with aiofiles.open("response.txt", "w", encoding="utf-8") as f1:
+                    await f1.write(text)
+                raise Exception("Couldn't get post info from page source")
         post = postInfo.group(0)
         self.logger.debug(f"Found shreddit post class: {post}")
         subreddit = postInfo.group(1)

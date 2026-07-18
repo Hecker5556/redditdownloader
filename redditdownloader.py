@@ -113,6 +113,10 @@ class REDDITDOWNLOADER:
         else:
             videosPattern = r"#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=(\d+),RESOLUTION=(\d+)x(\d+),CODECS=\"(.*?)\"\n(.*?)_v4\.m3u8"
         videosList = await asyncio.to_thread(re.findall, videosPattern, text)
+        if len(videosList) == 0 and manifestType == 'gif':
+            videosPattern = r"#EXT-X-STREAM-INF:PROGRAM-ID=0,CLOSED-CAPTIONS=(.*?),BANDWIDTH=(\d+),AVERAGE-BANDWIDTH=(\d+),RESOLUTION=(\d+)x(\d+),FRAME-RATE=(\d+),CODECS=\"(.*?)\"\n(.*?)m3u8"
+            videosList = await asyncio.to_thread(re.findall, videosPattern, text)
+            manifestType = 'video'
         baseUrl = link.split("HLSPlaylist")[0]
         if manifestType == 'video':
             if len(audios) > 0:
@@ -365,7 +369,7 @@ class REDDITDOWNLOADER:
         postData = {}
         for key, value in title:
             postData[key] = unescape(value)
-            self.logger.debug(f"Extracted {key}: {value} from shreddit post class")
+            self.logger.debug(f"Extracted {key}: {unescape(value)} from shreddit post class")
         postData["subreddit"] = subreddit
         authorPattern = r"author=\"(.*?)\""
         author = await asyncio.to_thread(re.search, authorPattern, post)
@@ -444,6 +448,11 @@ class REDDITDOWNLOADER:
                 postData['videoUrl'] = videoUrl.group(1).replace("&amp;", "&")
                 if downloadMedia:
                     postData['filenames'] = [await self._downloadMedia(postData['videoUrl'], 'gif', postData, maxFileSize)]
+        elif postData['type'] == 'crosspost':
+            referencePattern = r"content-href=\"(.*?)\""
+            referece = await asyncio.to_thread(re.search, referencePattern, text)
+            if referece:
+                postData['crosspost'] = await self.download("https://reddit.com" + referece.group(1), downloadMedia, maxFileSize)
         return postData
 async def main():
     import argparse     

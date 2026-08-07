@@ -318,8 +318,26 @@ class REDDITDOWNLOADER:
         self.logger.debug(f"Made a GET request to {link}, status code: {r.status_code}")
         text = await r.atext()
         maxTries = 5
+        solution_pattern = r"\)\(\"(.*?)\"\)\);"
+        otherParams_pattern = r"<input type=\"hidden\" name=\"(.*?)\" value=\"(.*?)\"/>"
+        solution = await asyncio.to_thread(re.search, solution_pattern, text)
+        if (solution is None):
+            async with aiofiles.open("response.txt", "w", encoding="utf-8") as f1:
+                await f1.write(text)
+            raise Exception("Couldn't solve javascript test, solution couldn't be found in page source")
+        solution = solution.group(1)
+        self.logger.debug(f"Found solution string: {solution}")
+        params = {}
+        params["solution"] = solution + solution
+        otherParams = await asyncio.to_thread(re.findall, otherParams_pattern, text)
+        for key, value in otherParams:
+            params[key] = value
+            self.logger.debug(f"Found input param: {key}: {value}")
+        r: Response = await self.session.get(link, impersonate="chrome", stream=True, params=params, headers=self.headers)
+        link = r.url
+        self.logger.debug(f"Sent a GET request to {link} with parameters: {params}, status code: {r.status_code}")
+        text = await r.atext()
         while ("Reddit - Please wait for verification" in text and maxTries > 0):
-            solution_pattern = r"\)\(\"(.*?)\"\)\);"
             solution = await asyncio.to_thread(re.search, solution_pattern, text)
             if (solution is None):
                 async with aiofiles.open("response.txt", "w", encoding="utf-8") as f1:
@@ -329,12 +347,10 @@ class REDDITDOWNLOADER:
             self.logger.debug(f"Found solution string: {solution}")
             params = {}
             params["solution"] = solution + solution
-            otherParams_pattern = r"<input type=\"hidden\" name=\"(.*?)\" value=\"(.*?)\"/>"
             otherParams = await asyncio.to_thread(re.findall, otherParams_pattern, text)
             for key, value in otherParams:
                 params[key] = value
                 self.logger.debug(f"Found input param: {key}: {value}")
-
             r: Response = await self.session.get(link, impersonate="chrome", stream=True, params=params, headers=self.headers)
             link = r.url
             self.logger.debug(f"Sent a GET request to {link} with parameters: {params}, status code: {r.status_code}")

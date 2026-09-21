@@ -13,3 +13,5 @@ dependencies = [
 "aiofiles",
 "curl_cffi",
 ]
+[tool.setuptools]
+py-modules = ["redditdownloader.py", "redditscrape.py"]

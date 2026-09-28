@@ -322,7 +322,7 @@ class REDDITDOWNLOADER:
         otherParams_pattern = r"<input type=\"hidden\" name=\"(.*?)\" value=\"(.*?)\"/>"
         solution = await asyncio.to_thread(re.search, solution_pattern, text)
         if (solution is None):
-            async with aiofiles.open("response.txt", "w", encoding="utf-8") as f1:
+            async with aiofiles.open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "response.txt"), "w", encoding="utf-8") as f1:
                 await f1.write(text)
             raise Exception("Couldn't solve javascript test, solution couldn't be found in page source")
         solution = solution.group(1)
@@ -340,7 +340,7 @@ class REDDITDOWNLOADER:
         while ("Reddit - Please wait for verification" in text and maxTries > 0):
             solution = await asyncio.to_thread(re.search, solution_pattern, text)
             if (solution is None):
-                async with aiofiles.open("response.txt", "w", encoding="utf-8") as f1:
+                async with aiofiles.open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "response.txt"), "w", encoding="utf-8") as f1:
                     await f1.write(text)
                 raise Exception("Couldn't solve javascript test, solution couldn't be found in page source")
             solution = solution.group(1)
@@ -358,13 +358,13 @@ class REDDITDOWNLOADER:
             maxTries -= 1
         if (maxTries == 0):
             raise Exception("Reddit gave javascript test more than 5 times, exiting")
-        postPattern = r"<shreddit-post class(?:.*?)subreddit-name=\"(.*?)\">"
+        postPattern = r"<shreddit-post (?:.*?)?class(?:.*?)subreddit-name=\"(.*?)\">"
         postInfo = await asyncio.to_thread(re.search, postPattern, text)
         if (postInfo is None):
             redirectPattern = r"method=\"location\.replace\((.*?)\)\"></ac-call>"
             redirectUrl = await asyncio.to_thread(re.search, redirectPattern, text)
             if not redirectUrl:
-                async with aiofiles.open("response.txt", "w", encoding="utf-8") as f1:
+                async with aiofiles.open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "response.txt"), "w", encoding="utf-8") as f1:
                     await f1.write(text)
                 raise Exception("Couldn't get post info from page source")
             redirectUrl = 'https://reddit.com' + unescape(redirectUrl.group(1)).replace('"', '')
@@ -374,7 +374,7 @@ class REDDITDOWNLOADER:
             text = await r.atext()
             postInfo = await asyncio.to_thread(re.search, postPattern, text)
             if (postInfo is None):  
-                async with aiofiles.open("response.txt", "w", encoding="utf-8") as f1:
+                async with aiofiles.open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "response.txt"), "w", encoding="utf-8") as f1:
                     await f1.write(text)
                 raise Exception("Couldn't get post info from page source")
         post = postInfo.group(0)
@@ -395,7 +395,7 @@ class REDDITDOWNLOADER:
         authorAvatarPattern = r"icon=\"(.*?)\""
         authorAvatar = await asyncio.to_thread(re.search, authorAvatarPattern, post)
         if authorAvatar is not None:
-            postData['authorAvatar'] = authorAvatar.group(1)
+            postData['authorAvatar'] = unescape(authorAvatar.group(1))
         upvotes = await asyncio.to_thread(re.search, upvotesPattern, post)
         if upvotes:
             postData['upvotes'] = upvotes.group(1)
@@ -469,6 +469,10 @@ class REDDITDOWNLOADER:
             referece = await asyncio.to_thread(re.search, referencePattern, text)
             if referece:
                 postData['crosspost'] = await self.download("https://reddit.com" + referece.group(1), downloadMedia, maxFileSize)
+        elif postData['type'] == 'link':
+            linkPattern = r"content-href=\"(.*?)\""
+            linkPost = await asyncio.to_thread(re.search, linkPattern, text)
+            postData['link'] = linkPost.group(1)
         return postData
 async def main():
     import argparse     

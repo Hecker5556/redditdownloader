@@ -7,21 +7,15 @@
 ## First time setup
 ### Install [python](https://python.org)
 ### In cmd
-```bash
-git clone "https://github.com/Hecker5556/redditdownloader.git"
 ```
-```bash
-cd redditdownloader
-```
-```bash
-pip install -r requirements.txt
+pip install "git+https://github.com/Hecker5556/redditdownloader"
 ```
 ## download [ffmpeg](https://www.ffmpeg.org/download.html)
 Downloading videos involves combining a video and an audio, ffmpeg path can be provided
 # Usage
 ## Usage in cli
 ```
-usage: redditdownloader.py [-h] [--proxy PROXY] [--max-size MAX_SIZE] [--no-download] link
+usage: redditdownloader [-h] [--proxy PROXY] [--max-size MAX_SIZE] [--no-download] [--verbose] link
 
 positional arguments:
   link                  Link to post
@@ -33,6 +27,7 @@ options:
   --max-size MAX_SIZE, -m MAX_SIZE
                         Max size of video allowed to download in megabytes
   --no-download, -n     Dont download the post
+  --verbose, -v         Enable verbosity
 ```
 
 ## Usage in python

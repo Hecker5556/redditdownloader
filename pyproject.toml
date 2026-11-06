@@ -13,3 +13,10 @@ dependencies = [
 "aiofiles",
 "curl_cffi",
 ]
+
+[project.scripts]
+redditdownloader = "redditdownloader.redditdownloader:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["redditdownloader*"]
